@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Research Intelligence Dashboard</title>
+  <link rel="stylesheet" href="/styles.css" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+</head>
+<body>
+  <header>
+    <h1>Research Intelligence</h1>
+    <div class="header-actions">
+      <span id="tier-badge" class="badge tier1">tier: …</span>
+      <button id="ingest-btn">Run ingestion</button>
+    </div>
+  </header>
+
+  <nav id="tabs">
+    <button data-tab="feed" class="active">Feed</button>
+    <button data-tab="youtube">YouTube</button>
+    <button data-tab="twitter">Twitter/X</button>
+    <button data-tab="blogs">Blogs &amp; Forums</button>
+    <button data-tab="signals">Signals</button>
+    <button data-tab="watchlists">Watchlists</button>
+    <button data-tab="trends">Trends</button>
+    <button data-tab="industries">Industries</button>
+    <button data-tab="sources">Sources</button>
+  </nav>
+
+  <main>
+    <section id="view-feed" class="view active"></section>
+    <section id="view-youtube" class="view"></section>
+    <section id="view-twitter" class="view"></section>
+    <section id="view-blogs" class="view"></section>
+    <section id="view-signals" class="view"></section>
+    <section id="view-watchlists" class="view"></section>
+    <section id="view-trends" class="view">
+      <div class="chart-wrap"><canvas id="chart-directions"></canvas></div>
+      <div class="chart-wrap"><canvas id="chart-topics"></canvas></div>
+    </section>
+    <section id="view-industries" class="view"></section>
+    <section id="view-sources" class="view"></section>
+  </main>
+
+  <div id="toast"></div>
+  <script src="/charts.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>
