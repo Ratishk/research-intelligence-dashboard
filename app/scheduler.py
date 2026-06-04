@@ -43,24 +43,12 @@ def job_discovery() -> None:
         )
 
 
-def job_digest() -> None:
-    with session_scope() as session:
-        digest_mod.send_daily_digest(session)
-
-
 def job_shift_alerts() -> None:
     with session_scope() as session:
         symbols = sorted(
             {row[0] for row in session.query(WatchlistItem.ticker_symbol).all()}
         )
-        alerts = insights.detect_shifts(session, symbols)
-        if alerts:
-            html = "<h3>Narrative shift alerts</h3><ul>" + "".join(
-                f"<li>{a['symbol']}: {a['from']} → {a['to']} "
-                f"({a['recent_total']} recent signals)</li>"
-                for a in alerts
-            ) + "</ul>"
-            digest_mod.send_email(html, "⚠️ Signal shift alert")
+        insights.detect_shifts(session, symbols)
 
 
 def build_scheduler() -> BackgroundScheduler:
@@ -72,6 +60,5 @@ def build_scheduler() -> BackgroundScheduler:
     scheduler.add_job(
         job_discovery, "interval", days=tier.discovery_interval_days, id="discovery"
     )
-    scheduler.add_job(job_digest, "cron", hour=7, minute=0, id="digest")
     scheduler.add_job(job_shift_alerts, "interval", hours=4, id="shift_alerts")
     return scheduler
