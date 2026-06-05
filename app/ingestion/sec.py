@@ -9,7 +9,7 @@ API: https://efts.sec.gov/LATEST/search-index?q=...
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 
 import requests
 
@@ -51,7 +51,7 @@ def ingest_source(session, source: Source) -> int:
         published = None
         if src.get("file_date"):
             try:
-                published = datetime.fromisoformat(src["file_date"])
+                published = datetime.fromisoformat(src["file_date"]).replace(tzinfo=timezone.utc)
             except ValueError:
                 published = None
         title = f"{src.get('display_names', [query])[0]} — {src.get('file_type', forms)}"

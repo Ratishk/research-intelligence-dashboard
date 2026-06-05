@@ -23,10 +23,12 @@ class Base(DeclarativeBase):
 
 
 def init_db() -> None:
-    """Create all tables. Import models first so they register on Base."""
+    """Create all tables, then apply column migrations."""
     from app import models  # noqa: F401
+    from app import migrate
 
     Base.metadata.create_all(bind=engine)
+    migrate.run_migrations(engine)
 
 
 @contextmanager

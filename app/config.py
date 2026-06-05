@@ -67,6 +67,10 @@ class Config:
     ANTHROPIC_API_KEY = _get("ANTHROPIC_API_KEY")
     PERPLEXITY_API_KEY = _get("PERPLEXITY_API_KEY")
     GOOGLE_API_KEY = _get("GOOGLE_API_KEY")
+    # X / Twitter API v2 (Bearer = app-only read access)
+    X_BEARER_TOKEN = _get("X_BEARER_TOKEN")
+    X_CONSUMER_KEY = _get("X_CONSUMER_KEY")
+    X_CONSUMER_SECRET = _get("X_CONSUMER_SECRET")
 
     # Reddit
     REDDIT_CLIENT_ID = _get("REDDIT_CLIENT_ID")

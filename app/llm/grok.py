@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 _BASE = "https://api.x.ai/v1/chat/completions"
 _TIMEOUT = 60
-FAST_MODEL = "grok-4-fast"
+FAST_MODEL = "grok-3-fast"
 
 
 def is_configured() -> bool:

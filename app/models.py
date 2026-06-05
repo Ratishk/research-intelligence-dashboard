@@ -39,6 +39,15 @@ class SourceType(str, enum.Enum):
     reddit = "reddit"
     hackernews = "hackernews"
     arxiv = "arxiv"
+    form4 = "form4"
+    patent = "patent"
+    congress = "congress"
+    prediction = "prediction"
+    institutional = "institutional"
+    dilution = "dilution"
+    clinicaltrial = "clinicaltrial"
+    form8k = "form8k"
+    form144 = "form144"
 
 
 class SourceStatus(str, enum.Enum):
@@ -174,6 +183,25 @@ class Ticker(Base):
     week52_low: Mapped[float | None] = mapped_column(Float, nullable=True)
     next_earnings: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     updated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # Fundamentals (Webull-equivalent)
+    short_interest_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+    short_ratio: Mapped[float | None] = mapped_column(Float, nullable=True)
+    analyst_rating: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    analyst_target: Mapped[float | None] = mapped_column(Float, nullable=True)
+    analyst_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # StockTwits social sentiment
+    st_bull: Mapped[int] = mapped_column(Integer, default=0)
+    st_bear: Mapped[int] = mapped_column(Integer, default=0)
+    st_updated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # Consensus engine — blended crowd-belief score (-1 bearish .. +1 bullish)
+    consensus_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    consensus_label: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    consensus_updated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # Volume / momentum (Yahoo v8 chart)
+    rvol: Mapped[float | None] = mapped_column(Float, nullable=True)
+    latest_volume: Mapped[float | None] = mapped_column(Float, nullable=True)
+    change_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+    change_5d_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
 
 
 class WatchlistItem(Base):
@@ -196,3 +224,26 @@ class Digest(Base):
     date: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, index=True)
     content_json: Mapped[str] = mapped_column(Text, default="{}")
     sent_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
+class DailyFinding(Base):
+    """A stored daily DeepResearch top-N findings run (one row per day)."""
+    __tablename__ = "daily_findings"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    date_key: Mapped[str] = mapped_column(String(10), unique=True, index=True)  # YYYY-MM-DD
+    findings_json: Mapped[str] = mapped_column(Text, default="[]")
+    packet_json: Mapped[str] = mapped_column(Text, default="{}")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, index=True)
+
+
+class ShiftAlert(Base):
+    """Persisted ticker polarity flip detected by insights.detect_shifts."""
+    __tablename__ = "shift_alerts"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    symbol: Mapped[str] = mapped_column(String(20), index=True)
+    from_score: Mapped[float] = mapped_column(Float)
+    to_score: Mapped[float] = mapped_column(Float)
+    recent_total: Mapped[int] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, index=True)

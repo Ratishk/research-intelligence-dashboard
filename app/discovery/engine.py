@@ -23,15 +23,15 @@ def _active_sources(session, industry: Industry) -> list[Source]:
     ]
 
 
-def _exists(session, url: str, name: str, type_: str) -> bool:
+def _find_existing(session, url: str, name: str, type_: str) -> Source | None:
+    """Return an existing Source matching by normalized URL or name+type, else None."""
     norm = normalize_url(url)
     if norm:
-        if session.scalar(select(Source.id).where(Source.url == norm)):
-            return True
-    return bool(
-        session.scalar(
-            select(Source.id).where(Source.name == name, Source.type == type_)
-        )
+        src = session.scalar(select(Source).where(Source.url == norm))
+        if src:
+            return src
+    return session.scalar(
+        select(Source).where(Source.name == name, Source.type == type_)
     )
 
 
@@ -55,7 +55,14 @@ def discover_for_industry(session, industry: Industry, limit: int | None = None)
             continue
         url = normalize_url(cand.get("url", ""))
         name = str(cand.get("name", "")).strip()
-        if not name or _exists(session, cand.get("url", ""), name, type_):
+        if not name:
+            continue
+        existing = _find_existing(session, cand.get("url", ""), name, type_)
+        if existing is not None:
+            # Source exists — link it to this industry if not already associated.
+            if industry not in existing.industries:
+                existing.industries.append(industry)
+                added += 1
             continue
         verdict = scorer.score_candidate(cand)
         if not verdict["keep"]:
@@ -73,8 +80,9 @@ def discover_for_industry(session, industry: Industry, limit: int | None = None)
             active=True,
             last_scored=datetime.now(timezone.utc),
         )
-        source.industries.append(industry)
         session.add(source)
+        session.flush()
+        source.industries.append(industry)
         added += 1
     return {"industry": industry.name, "added": added, "need": need}
 

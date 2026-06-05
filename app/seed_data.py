@@ -274,6 +274,73 @@ INDUSTRIES: dict[str, dict] = {
 }
 
 
+# Form 4 (insider trade) sources — one per key ticker.
+# No feed URL: the ticker in `handle` drives the EDGAR submissions lookup, and
+# an empty url makes the seeder synthesize a unique internal:// key per ticker.
+FORM4_SOURCES: list[tuple[str, str, str, str, int]] = [
+    ("Form 4 — NVDA", "form4", "", "NVDA", 1),
+    ("Form 4 — AMD",  "form4", "", "AMD",  1),
+    ("Form 4 — ASML", "form4", "", "ASML", 1),
+    ("Form 4 — MSFT", "form4", "", "MSFT", 1),
+    ("Form 4 — AMZN", "form4", "", "AMZN", 1),
+    ("Form 4 — TSM",  "form4", "", "TSM",  1),
+]
+
+# Patent sources via Google Patents XHR. handle = search keyword (sorted newest).
+# Empty url → seeder synthesizes a unique internal:// key per keyword.
+PATENT_SOURCES: list[tuple[str, str, str, str, int]] = [
+    ("Patents: AI Accelerator",          "patent", "", "AI accelerator chip neural network", 1),
+    ("Patents: EUV Lithography",         "patent", "", "EUV extreme ultraviolet lithography", 1),
+    ("Patents: mRNA Delivery",           "patent", "", "mRNA lipid nanoparticle delivery", 1),
+    ("Patents: Solid State Battery",     "patent", "", "solid state battery electrolyte", 1),
+    ("Patents: Quantum Error Correction","patent", "", "quantum error correction qubit", 1),
+]
+
+# Smart-money & forecast sources (one global source each; no per-keyword feed).
+SMART_MONEY_SOURCES: list[tuple[str, str, str, str, int]] = [
+    ("Congressional Trades (Quiver)", "congress",   "", "congress", 1),
+    ("Prediction Markets (Polymarket)", "prediction", "", "polymarket", 1),
+    ("Prediction Markets (Kalshi)", "prediction", "", "kalshi", 1),
+]
+
+# Institutional / activist stake trackers (SC 13D/13G) — one per key ticker.
+# handle = ticker; empty url → unique internal:// key per ticker.
+_INST_TICKERS = [
+    "NVDA", "AMD", "ASML", "MSFT", "AMZN", "TSM", "INTC", "AVGO", "MRVL",
+    "ARM", "MU", "KLAC", "LRCX", "AMAT", "MRNA", "CRSP", "BEAM", "IONQ",
+]
+INSTITUTIONAL_SOURCES: list[tuple[str, str, str, str, int]] = [
+    (f"13D/G — {t}", "institutional", "", t, 1) for t in _INST_TICKERS
+]
+
+# Dilution-risk trackers (S-1/S-3/424B offerings) — dilution-prone names.
+_DILUTION_TICKERS = [
+    "MRNA", "BNTX", "CRSP", "BEAM", "NTLA", "RXRX", "IONQ", "RGTI", "QUBT",
+    "PLUG", "RUN", "BE", "ENPH", "FSLR",
+]
+DILUTION_SOURCES: list[tuple[str, str, str, str, int]] = [
+    (f"Dilution — {t}", "dilution", "", t, 1) for t in _DILUTION_TICKERS
+]
+
+# 8-K material events + Form 144 (planned sells) — one per key ticker.
+EVENT8K_SOURCES: list[tuple[str, str, str, str, int]] = [
+    (f"8-K — {t}", "form8k", "", t, 1) for t in _INST_TICKERS
+]
+FORM144_SOURCES: list[tuple[str, str, str, str, int]] = [
+    (f"Form 144 — {t}", "form144", "", t, 1) for t in _INST_TICKERS
+]
+
+# Biotech clinical-trial catalyst trackers. handle=sponsor name, tags=ticker.
+_BIOTECH_COMPANIES = [
+    ("Moderna", "MRNA"), ("BioNTech", "BNTX"), ("CRISPR Therapeutics", "CRSP"),
+    ("Beam Therapeutics", "BEAM"), ("Intellia Therapeutics", "NTLA"),
+    ("Recursion Pharmaceuticals", "RXRX"),
+]
+# handle encodes "Sponsor Name|TICKER" (seeder clobbers tags with industry name).
+BIOTECH_SOURCES: list[tuple[str, str, str, str, int]] = [
+    (f"Trials — {tk}", "clinicaltrial", "", f"{name}|{tk}", 1) for name, tk in _BIOTECH_COMPANIES
+]
+
 # Default ticker watchlists (list_name -> symbols).
 WATCHLISTS: dict[str, list[str]] = {
     "EUV Supply Chain": ["ASML", "KLAC", "LRCX", "AMAT", "ONTO", "FORM", "BESI"],

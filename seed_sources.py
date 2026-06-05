@@ -14,7 +14,11 @@ from sqlalchemy import select
 from app.database import init_db, session_scope
 from app.ingestion.common import normalize_url
 from app.models import Industry, Source, SourceStatus, WatchlistItem
-from app.seed_data import INDUSTRIES, WATCHLISTS
+from app.seed_data import (
+    BIOTECH_SOURCES, DILUTION_SOURCES, EVENT8K_SOURCES, FORM4_SOURCES,
+    FORM144_SOURCES, INDUSTRIES, INSTITUTIONAL_SOURCES, PATENT_SOURCES,
+    SMART_MONEY_SOURCES, WATCHLISTS,
+)
 
 
 def _get_or_create_industry(session, name: str, group: str) -> Industry:
@@ -70,6 +74,20 @@ def main() -> None:
                     session, s_name, s_type, s_url, s_handle, s_tier, industry
                 )
                 src_count += 1
+
+        # Form 4 and patent sources — stored globally (no industry association needed)
+        # but we create a stub "Insider / Patents" industry to keep the schema consistent.
+        meta_industry = _get_or_create_industry(session, "Insider & Patents", "Meta")
+        smart_industry = _get_or_create_industry(session, "Smart Money & Forecasts", "Meta")
+        for (s_name, s_type, s_url, s_handle, s_tier) in FORM4_SOURCES + PATENT_SOURCES:
+            _get_or_create_source(session, s_name, s_type, s_url, s_handle, s_tier, meta_industry)
+            src_count += 1
+        for (s_name, s_type, s_url, s_handle, s_tier) in (
+            SMART_MONEY_SOURCES + INSTITUTIONAL_SOURCES + DILUTION_SOURCES
+            + BIOTECH_SOURCES + EVENT8K_SOURCES + FORM144_SOURCES
+        ):
+            _get_or_create_source(session, s_name, s_type, s_url, s_handle, s_tier, smart_industry)
+            src_count += 1
 
         wl_count = 0
         for list_name, symbols in WATCHLISTS.items():

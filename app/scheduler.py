@@ -13,7 +13,6 @@ from app.config import config
 from app.database import session_scope
 from app.discovery import engine as discovery_engine
 from app.ingestion.runner import run_all_ingestion
-from app.processing import digest as digest_mod
 from app.processing import insights
 from app.processing.classifier import run_classification
 from app.processing.tickers import refresh_watchlist_tickers
@@ -44,11 +43,30 @@ def job_discovery() -> None:
 
 
 def job_shift_alerts() -> None:
+    from app.models import ShiftAlert
     with session_scope() as session:
         symbols = sorted(
             {row[0] for row in session.query(WatchlistItem.ticker_symbol).all()}
         )
-        insights.detect_shifts(session, symbols)
+        alerts = insights.detect_shifts(session, symbols)
+        for a in alerts:
+            session.add(ShiftAlert(
+                symbol=a["symbol"],
+                from_score=a["from"],
+                to_score=a["to"],
+                recent_total=a["recent_total"],
+            ))
+        if alerts:
+            logger.info("Shift alerts: %s", [a["symbol"] for a in alerts])
+
+
+def job_daily_findings() -> None:
+    """Pre-compute the DeepResearch top-5 each morning so the page is ready."""
+    from app.main import run_daily_findings
+    with session_scope() as session:
+        result = run_daily_findings(session, force=True)
+        logger.info("Daily findings: %d ideas for %s",
+                    len(result.get("findings", [])), result.get("date"))
 
 
 def build_scheduler() -> BackgroundScheduler:
@@ -61,4 +79,6 @@ def build_scheduler() -> BackgroundScheduler:
         job_discovery, "interval", days=tier.discovery_interval_days, id="discovery"
     )
     scheduler.add_job(job_shift_alerts, "interval", hours=4, id="shift_alerts")
+    # Daily DeepResearch findings at 11:00 UTC (~7am ET, pre-market).
+    scheduler.add_job(job_daily_findings, "cron", hour=11, minute=0, id="daily_findings")
     return scheduler

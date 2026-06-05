@@ -5,38 +5,89 @@ import json
 import logging
 from datetime import datetime, timedelta, timezone
 
+import requests
 from sqlalchemy import select
 
 from app.models import Signal, Ticker, WatchlistItem
 
 logger = logging.getLogger(__name__)
 
+_ST_TIMEOUT = 8
+# Browser-like UA — StockTwits throttles generic clients more aggressively.
+_ST_UA = (
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/120.0 Safari/537.36"
+)
+
+
+def _refresh_stocktwits(ticker: Ticker) -> None:
+    """Fetch bull/bear message counts from StockTwits public stream (no auth)."""
+    try:
+        resp = requests.get(
+            f"https://api.stocktwits.com/api/2/streams/symbol/{ticker.symbol}.json",
+            params={"limit": 30},
+            headers={"User-Agent": _ST_UA},
+            timeout=_ST_TIMEOUT,
+        )
+        if resp.status_code != 200:
+            return
+        messages = resp.json().get("messages", [])
+        bull = sum(
+            1 for m in messages
+            if (m.get("entities") or {}).get("sentiment", {}).get("basic") == "Bullish"
+        )
+        bear = sum(
+            1 for m in messages
+            if (m.get("entities") or {}).get("sentiment", {}).get("basic") == "Bearish"
+        )
+        ticker.st_bull = bull
+        ticker.st_bear = bear
+        ticker.st_updated_at = datetime.now(timezone.utc)
+    except Exception:
+        logger.debug("StockTwits fetch skipped for %s", ticker.symbol)
+
 
 def refresh_ticker(session, symbol: str) -> None:
-    try:
-        import yfinance as yf
-
-        info = yf.Ticker(symbol).info
-    except Exception:
-        logger.warning("yfinance fetch failed for %s", symbol)
-        return
     ticker = session.get(Ticker, symbol)
     if ticker is None:
         ticker = Ticker(symbol=symbol)
         session.add(ticker)
-    ticker.name = info.get("shortName") or info.get("longName") or ticker.name
-    ticker.sector = info.get("sector") or ticker.sector
-    ticker.price = info.get("currentPrice") or info.get("regularMarketPrice")
-    ticker.market_cap = info.get("marketCap")
-    ticker.week52_high = info.get("fiftyTwoWeekHigh")
-    ticker.week52_low = info.get("fiftyTwoWeekLow")
-    ts = info.get("earningsTimestamp")
-    if ts:
-        try:
-            ticker.next_earnings = datetime.fromtimestamp(ts, tz=timezone.utc)
-        except (TypeError, ValueError, OverflowError):
-            pass
+
+    # yfinance (price + fundamentals) — independent; failure must NOT skip the
+    # StockTwits/consensus steps below, since social alone yields a consensus.
+    try:
+        import yfinance as yf
+
+        info = yf.Ticker(symbol).info
+        ticker.name = info.get("shortName") or info.get("longName") or ticker.name
+        ticker.sector = info.get("sector") or ticker.sector
+        ticker.price = info.get("currentPrice") or info.get("regularMarketPrice")
+        ticker.market_cap = info.get("marketCap")
+        ticker.week52_high = info.get("fiftyTwoWeekHigh")
+        ticker.week52_low = info.get("fiftyTwoWeekLow")
+        ts = info.get("earningsTimestamp")
+        if ts:
+            try:
+                ticker.next_earnings = datetime.fromtimestamp(ts, tz=timezone.utc)
+            except (TypeError, ValueError, OverflowError):
+                pass
+        ticker.short_interest_pct = info.get("shortPercentOfFloat")
+        ticker.short_ratio = info.get("shortRatio")
+        ticker.analyst_rating = info.get("recommendationKey")
+        ticker.analyst_target = info.get("targetMeanPrice")
+        ticker.analyst_count = info.get("numberOfAnalystOpinions")
+    except Exception:
+        logger.warning("yfinance fetch failed for %s (using social-only data)", symbol)
+
     ticker.updated_at = datetime.now(timezone.utc)
+    # Volume/momentum + price fallback (Yahoo v8 chart — works when yfinance 429s)
+    from app.processing.volume import refresh_volume
+    refresh_volume(ticker)
+    # StockTwits sentiment (non-critical — failure doesn't abort)
+    _refresh_stocktwits(ticker)
+    # Recompute blended consensus from whatever positioning data we have.
+    from app.processing.consensus import refresh_consensus
+    refresh_consensus(ticker)
 
 
 def refresh_watchlist_tickers(session) -> int:

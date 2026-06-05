@@ -91,7 +91,7 @@ def ingest_source(session, source: Source) -> int:
                     snippet["publishedAt"].replace("Z", "+00:00")
                 )
             except ValueError:
-                published = datetime.now(timezone.utc)
+                published = None
         body = snippet.get("description", "")
         transcript = _transcript(video_id)
         if transcript:

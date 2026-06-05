@@ -6,12 +6,16 @@ from datetime import datetime, timezone
 from urllib.parse import urlparse, urlunparse
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models import Item, Source
 
-# Tracking params we strip so the same article from two referrers dedupes.
-_TRACKING_PREFIXES = ("utm_", "fbclid", "gclid", "mc_cid", "mc_eid", "ref")
+# Tracking params stripped so the same article from two referrers dedupes.
+# _TRACKING_EXACT: stripped only when the key matches exactly.
+# _TRACKING_PREFIXES: stripped when the key starts with the prefix.
+_TRACKING_EXACT = {"fbclid", "gclid", "mc_cid", "mc_eid", "ref"}
+_TRACKING_PREFIXES = ("utm_",)
 
 
 def normalize_url(url: str) -> str:
@@ -29,11 +33,14 @@ def normalize_url(url: str) -> str:
 
     query = parts.query
     if query:
-        kept = [
-            kv
-            for kv in query.split("&")
-            if kv and not any(kv.lower().startswith(p) for p in _TRACKING_PREFIXES)
-        ]
+        kept = []
+        for kv in query.split("&"):
+            if not kv:
+                continue
+            key = kv.split("=", 1)[0].lower()
+            if key in _TRACKING_EXACT or any(key.startswith(p) for p in _TRACKING_PREFIXES):
+                continue
+            kept.append(kv)
         query = "&".join(sorted(kept))
 
     path = parts.path.rstrip("/") or "/"
@@ -78,5 +85,10 @@ def upsert_item(
         published_at=published_at,
     )
     session.add(item)
+    try:
+        session.flush([item])
+    except IntegrityError:
+        session.rollback()
+        return None
     source.last_crawled = datetime.now(timezone.utc)
     return item
