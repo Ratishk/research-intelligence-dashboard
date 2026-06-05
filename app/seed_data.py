@@ -330,6 +330,38 @@ FORM144_SOURCES: list[tuple[str, str, str, str, int]] = [
     (f"Form 144 — {t}", "form144", "", t, 1) for t in _INST_TICKERS
 ]
 
+# Government-contract trackers (revenue visibility). handle="Company|TICKER".
+_GOVCON_COMPANIES = [
+    ("Lockheed Martin", "LMT"), ("RTX Corporation", "RTX"),
+    ("Northrop Grumman", "NOC"), ("General Dynamics", "GD"),
+    ("Palantir Technologies", "PLTR"), ("Boeing", "BA"),
+    ("L3Harris Technologies", "LHX"), ("Leidos", "LDOS"),
+]
+GOVCONTRACT_SOURCES: list[tuple[str, str, str, str, int]] = [
+    (f"Gov contracts — {tk}", "govcontract", "", f"{name}|{tk}", 1)
+    for name, tk in _GOVCON_COMPANIES
+]
+
+# FDA recall trackers (biotech/pharma negative catalysts). handle="Firm|TICKER".
+_FDA_COMPANIES = [
+    ("Pfizer", "PFE"), ("Moderna", "MRNA"), ("Johnson & Johnson", "JNJ"),
+    ("Eli Lilly", "LLY"), ("Merck", "MRK"), ("AbbVie", "ABBV"),
+    ("Bristol Myers Squibb", "BMY"), ("Amgen", "AMGN"),
+]
+FDARECALL_SOURCES: list[tuple[str, str, str, str, int]] = [
+    (f"FDA recalls — {tk}", "fdarecall", "", f"{name}|{tk}", 1)
+    for name, tk in _FDA_COMPANIES
+]
+
+# Bluesky accounts (FREE social — replaces paid X). handle = bsky handle.
+# Starter set; curate via the Sources tab (type "bluesky").
+BLUESKY_SOURCES: list[tuple[str, str, str, str, int]] = [
+    ("Bluesky: Paul Krugman", "bluesky", "", "pkrugman.bsky.social", 2),
+    ("Bluesky: Ed Yardeni", "bluesky", "", "yardeni.bsky.social", 2),
+    ("Bluesky: Marc Andreessen", "bluesky", "", "pmarca.bsky.social", 2),
+    ("Bluesky: Bloomberg", "bluesky", "", "bloomberg.com", 2),
+]
+
 # Biotech clinical-trial catalyst trackers. handle=sponsor name, tags=ticker.
 _BIOTECH_COMPANIES = [
     ("Moderna", "MRNA"), ("BioNTech", "BNTX"), ("CRISPR Therapeutics", "CRSP"),

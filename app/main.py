@@ -863,6 +863,14 @@ def get_short_volume_endpoint(db: Session = Depends(get_db)) -> JSONResponse:
     return JSONResponse(get_short_volume(symbols))
 
 
+@app.get("/api/ftd")
+def get_ftd_endpoint(db: Session = Depends(get_db)) -> JSONResponse:
+    """SEC Fails-to-Deliver totals for watchlist tickers (squeeze-fuel proxy)."""
+    from app.processing.ftd import get_ftd
+    symbols = sorted({r[0] for r in db.execute(select(WatchlistItem.ticker_symbol)).all()})
+    return JSONResponse(get_ftd(symbols))
+
+
 # ------------------------------------------------------------- unusual volume
 @app.get("/api/unusual-volume")
 def get_unusual_volume(min_rvol: float = 1.5, db: Session = Depends(get_db)) -> JSONResponse:

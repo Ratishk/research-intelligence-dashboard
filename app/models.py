@@ -48,6 +48,9 @@ class SourceType(str, enum.Enum):
     clinicaltrial = "clinicaltrial"
     form8k = "form8k"
     form144 = "form144"
+    govcontract = "govcontract"
+    fdarecall = "fdarecall"
+    bluesky = "bluesky"
 
 
 class SourceStatus(str, enum.Enum):

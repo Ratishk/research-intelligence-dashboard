@@ -1196,6 +1196,18 @@ async function renderMacro() {
         </div>`).join("")
       : `<div class="mini-sub" style="padding:8px 0">FINRA short data unavailable.</div>`;
   }).catch(() => {});
+  api("/api/ftd").then(ftd => {
+    const el = document.getElementById("macro-ftd");
+    if (!el) return;
+    const rows = (ftd.tickers || []);
+    el.innerHTML = rows.length
+      ? `<div class="mini-sub" style="margin-bottom:6px">SEC ${esc(ftd.date||"")}</div>` + rows.slice(0,10).map(t => `<div class="pulse-row" style="grid-template-columns:60px 1fr auto">
+          <span class="pulse-sym">${esc(t.symbol)}</span>
+          <span class="pulse-name"></span>
+          <span class="pulse-metric"><span class="lbl">fails</span><b>${(t.fails/1e3).toFixed(0)}K</b></span>
+        </div>`).join("")
+      : `<div class="mini-sub" style="padding:8px 0">No FTD data.</div>`;
+  }).catch(() => {});
 
   // Pulse loads independently (don't block the macro panel on it).
   const metric = (val, kind) => {

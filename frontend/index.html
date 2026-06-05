@@ -254,7 +254,7 @@
         <span class="section-meta">FRED · Federal Reserve economic data</span>
       </div>
       <div id="macro-indicators" class="macro-grid"></div>
-      <div class="sm-two-col" style="margin-top:24px">
+      <div class="sm-three-col" style="margin-top:24px">
         <div>
           <div class="section-header">
             <span class="section-label">⚡ Unusual volume</span>
@@ -268,6 +268,13 @@
             <span class="section-meta">FINRA daily short %</span>
           </div>
           <div id="macro-short"></div>
+        </div>
+        <div>
+          <div class="section-header">
+            <span class="section-label">Fails-to-deliver</span>
+            <span class="section-meta">SEC FTD · squeeze fuel</span>
+          </div>
+          <div id="macro-ftd"></div>
         </div>
       </div>
       <div class="section-header" style="margin-top:24px">
@@ -397,7 +404,7 @@
         <input id="src-name" class="filter-input" placeholder="Name" />
         <select id="src-type" class="filter-select">
           <option value="">Type</option>
-          ${["rss","twitter","youtube","forum","sec","form4","patent","reddit","hackernews","arxiv"].map(t=>`<option>${t}</option>`).join("")}
+          ${["rss","bluesky","twitter","youtube","forum","sec","form4","patent","reddit","hackernews","arxiv"].map(t=>`<option>${t}</option>`).join("")}
         </select>
         <input id="src-url" class="filter-input" placeholder="URL" />
         <input id="src-tags" class="filter-input" placeholder="Tags" />
