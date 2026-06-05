@@ -1194,6 +1194,53 @@ def investor_lens(payload: dict, db: Session = Depends(get_db)) -> JSONResponse:
     return JSONResponse(result)
 
 
+# ------------------------------------------------------------------------- ask
+@app.post("/api/ask")
+def ask(payload: dict, db: Session = Depends(get_db)) -> JSONResponse:
+    """RAG Q&A over our own data. Retrieval is free (local FTS5 + filters); only
+    the final answer costs tokens, bounded by a small retrieved context."""
+    from app.processing import rag
+
+    question = (payload.get("question") or "").strip()
+    if not question:
+        raise HTTPException(400, "question required")
+    if not claude.is_configured():
+        raise HTTPException(503, "ANTHROPIC_API_KEY not configured")
+
+    # Free local retrieval
+    signals = rag.retrieve(db, question, k=15)
+    tickers = rag.detect_tickers(db, question)
+    dossiers = [_ticker_dossier(db, t) for t in tickers[:3]]
+
+    if not signals and not dossiers:
+        return JSONResponse({
+            "answer": "I don't have any aggregated data matching that yet — try a "
+                      "ticker, theme, or topic the dashboard tracks.",
+            "sources": [], "retrieved": 0,
+        })
+
+    context = {
+        "signals": signals,
+        "tickers": [
+            {k: d[k] for k in ("ticker", "price", "consensus", "rvol",
+                               "short_volume_pct", "ftd_fails", "smart_money_flow",
+                               "signal_count") if k in d}
+            for d in dossiers
+        ] if dossiers else [],
+    }
+    answer_text = rag.generate(question, context)
+    return JSONResponse({
+        "answer": answer_text,
+        "sources": [
+            {"summary": s["summary"], "direction": s["direction"],
+             "url": s["url"], "date": s["date"]}
+            for s in signals[:8]
+        ],
+        "retrieved": len(signals),
+        "tickers": tickers,
+    })
+
+
 # ---------------------------------------------------------------------- theses
 def _thesis_dict(db: Session, t: Thesis) -> dict:
     ev = db.execute(

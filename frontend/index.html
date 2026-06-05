@@ -23,6 +23,7 @@
       <nav id="tabs">
         <div class="nav-group">Intelligence</div>
         <button data-tab="conviction" class="active"><i>★</i>Daily Findings</button>
+        <button data-tab="ask"><i>⌕</i>Ask</button>
         <button data-tab="home"><i>◰</i>Home</button>
         <button data-tab="theses"><i>⚑</i>Theses</button>
         <button data-tab="guide"><i>?</i>Guide</button>
@@ -67,6 +68,29 @@
       <div id="conv-history" class="conv-history"></div>
       <div id="conv-packet" class="conv-packet"></div>
       <div id="conv-cards"></div>
+    </section>
+
+    <!-- ASK (local RAG) -->
+    <section id="view-ask" class="view">
+      <div class="ask-head">
+        <div class="ask-title">Ask the data</div>
+        <div class="ask-sub">Ask in plain English. Retrieval over everything we've aggregated runs
+          <b>locally and free</b> — only the final answer spends tokens. Every answer is grounded in
+          and cited from our own signals, so it won't make things up.</div>
+      </div>
+      <div class="ask-bar">
+        <input id="ask-input" class="ask-input" autocomplete="off"
+          placeholder="e.g. Which tickers are insiders selling and is it bearish?" />
+        <button id="ask-go" class="btn-primary">Ask</button>
+      </div>
+      <div id="ask-examples" class="ask-examples">
+        <button class="ask-chip">Which tickers are insiders selling and is it bearish?</button>
+        <button class="ask-chip">What's the most contrarian signal this week?</button>
+        <button class="ask-chip">How does NVDA look right now?</button>
+        <button class="ask-chip">Where is smart money rotating?</button>
+      </div>
+      <div id="ask-answer" class="ask-answer"></div>
+      <div id="ask-sources" class="ask-sources"></div>
     </section>
 
     <!-- THESES -->

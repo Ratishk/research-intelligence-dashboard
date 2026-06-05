@@ -94,6 +94,98 @@ document.getElementById("synthesize-btn")?.addEventListener("click", async btn =
   b.textContent = "Generate"; b.disabled = false;
 });
 
+// ─── ASK (local RAG) ──────────────────────────────────────────────────────────
+// Minimal markdown → HTML for grounded answers (headings, bold, bullets, tables).
+function mdLite(src) {
+  const lines = esc(src || "").split("\n");
+  let html = "", inUl = false, tbl = [];
+  const flushUl = () => { if (inUl) { html += "</ul>"; inUl = false; } };
+  const flushTbl = () => {
+    if (!tbl.length) return;
+    const rows = tbl.filter(r => !/^\s*\|?[\s:|-]+\|?\s*$/.test(r)); // drop separator row
+    const cells = r => r.replace(/^\||\|$/g, "").split("|").map(c => c.trim());
+    html += "<table class='ask-tbl'>";
+    rows.forEach((r, i) => {
+      const tag = i === 0 ? "th" : "td";
+      html += "<tr>" + cells(r).map(c => `<${tag}>${inline(c)}</${tag}>`).join("") + "</tr>";
+    });
+    html += "</table>"; tbl = [];
+  };
+  const inline = t => t.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+                       .replace(/`(.+?)`/g, "<code>$1</code>");
+  for (const ln of lines) {
+    if (/^\s*\|.*\|/.test(ln)) { flushUl(); tbl.push(ln.trim()); continue; }
+    flushTbl();
+    const h = ln.match(/^(#{1,4})\s+(.*)/);
+    if (h) { flushUl(); html += `<h4 class="ask-h">${inline(h[2])}</h4>`; continue; }
+    const li = ln.match(/^\s*[-*]\s+(.*)/);
+    if (li) { if (!inUl) { html += "<ul>"; inUl = true; } html += `<li>${inline(li[1])}</li>`; continue; }
+    if (ln.trim() === "") { flushUl(); continue; }
+    flushUl(); html += `<p>${inline(ln)}</p>`;
+  }
+  flushUl(); flushTbl();
+  return html;
+}
+
+function askSourceCard(s) {
+  const dir = esc(s.direction || "neutral");
+  const ticks = (s.tickers || []).slice(0, 5)
+    .map(t => `<span class="sig-ticker" data-ticker="${esc(t)}">${esc(t)}</span>`).join("");
+  return `<div class="ask-src ${dir}">
+    <span class="sig-dir ${dir}">${dir}</span>
+    <span class="ask-src-sum">${esc(s.summary || "")}</span>
+    <span class="ask-src-meta">
+      ${s.type ? `<span class="sig-type-tag">${esc(String(s.type).replace(/_/g," "))}</span>` : ""}
+      ${ticks}
+      ${s.date ? `<span class="sig-time">${esc(s.date)}</span>` : ""}
+      ${s.url ? `<a href="${esc(s.url)}" target="_blank" rel="noopener" class="sig-source-link">↗</a>` : ""}
+    </span>
+  </div>`;
+}
+
+let _asking = false;
+async function askQuestion(q) {
+  q = (q || "").trim();
+  if (!q || _asking) return;
+  _asking = true;
+  const ansEl = document.getElementById("ask-answer");
+  const srcEl = document.getElementById("ask-sources");
+  const btn = document.getElementById("ask-go");
+  btn.disabled = true; btn.textContent = "Thinking…";
+  ansEl.innerHTML = `<div class="ask-loading">Retrieving from local index (free)… then reading with Claude.</div>`;
+  srcEl.innerHTML = "";
+  try {
+    const r = await api("/api/ask", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ question: q }),
+    });
+    ansEl.innerHTML = `<div class="ask-answer-body">${mdLite(r.answer || "")}</div>`;
+    const srcs = r.sources || [];
+    if (srcs.length) {
+      srcEl.innerHTML = `<div class="ask-src-head">Grounded in ${r.retrieved || srcs.length} signal${srcs.length === 1 ? "" : "s"}`
+        + `${(r.tickers || []).length ? ` · dossiers: ${(r.tickers || []).join(", ")}` : ""}</div>`
+        + srcs.map(askSourceCard).join("");
+    }
+  } catch (e) {
+    ansEl.innerHTML = `<div class="ask-loading">Couldn't answer that — ${esc(e.message || "request failed")}.</div>`;
+    console.error(e);
+  }
+  btn.disabled = false; btn.textContent = "Ask";
+  _asking = false;
+}
+
+document.getElementById("ask-go")?.addEventListener("click", () =>
+  askQuestion(document.getElementById("ask-input").value));
+document.getElementById("ask-input")?.addEventListener("keydown", e => {
+  if (e.key === "Enter") askQuestion(e.target.value);
+});
+document.querySelectorAll("#ask-examples .ask-chip").forEach(c =>
+  c.addEventListener("click", () => {
+    const q = c.textContent;
+    document.getElementById("ask-input").value = q;
+    askQuestion(q);
+  }));
+
 // ─── FEED ────────────────────────────────────────────────────────────────────
 let _feedTab = "feed";
 
@@ -1250,7 +1342,7 @@ document.addEventListener("keydown", e => {
 
 // ─── Command palette (⌘K) ─────────────────────────────────────────────────────
 const CMDK_TABS = [
-  ["conviction","★ Daily Findings"],["home","Home"],["theses","Theses"],["guide","Guide"],
+  ["conviction","★ Daily Findings"],["ask","Ask the data"],["home","Home"],["theses","Theses"],["guide","Guide"],
   ["smart-money","Smart Money"],["forecasts","Forecasts"],["investor-lens","Investor Lens"],
   ["macro","Macro & Pulse"],["signals","Signals"],["theme-shifts","Theme Shifts"],["trends","Trends"],
   ["feed","Feed"],["watchlists","Watchlists"],["industries","Industries"],["sources","Sources"],
@@ -1320,6 +1412,7 @@ async function renderTab(tab) {
   if (!tab) return;
   try {
     if (tab === "conviction")   await renderConviction();
+    else if (tab === "ask")     { setTimeout(() => document.getElementById("ask-input")?.focus(), 30); }
     else if (tab === "theses")  await renderTheses();
     else if (tab === "guide")   renderGuide();
     else if (tab === "home")    await renderHome();

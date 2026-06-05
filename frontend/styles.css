@@ -1010,3 +1010,46 @@ tr:hover td { background: var(--surface-2); }
 .empty-icon { font-size: 28px; margin-bottom: 10px; }
 .empty-title { font-size: 14px; font-weight: 500; color: var(--text-2); margin-bottom: 6px; }
 .empty-sub { font-size: 12px; line-height: 1.6; }
+
+/* ─── Ask (local RAG) ───────────────────────────────────────────────────── */
+.ask-head { margin-bottom: 16px; }
+.ask-title { font-size: 20px; font-weight: 650; color: var(--text); }
+.ask-sub { font-size: 13px; color: var(--text-2); line-height: 1.6; margin-top: 6px; max-width: 720px; }
+.ask-bar { display: flex; gap: 8px; margin-bottom: 12px; }
+.ask-input {
+  flex: 1; padding: 12px 14px; font-size: 14px; color: var(--text);
+  background: var(--surface); border: 1px solid var(--border-2); border-radius: 8px;
+}
+.ask-input:focus { outline: none; border-color: var(--accent); }
+.ask-bar .btn-primary { padding: 0 22px; }
+.ask-examples { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 20px; }
+.ask-chip {
+  padding: 6px 12px; font-size: 12px; color: var(--text-2); cursor: pointer;
+  background: var(--surface-2); border: 1px solid var(--border); border-radius: 16px;
+}
+.ask-chip:hover { color: var(--text); border-color: var(--accent); }
+.ask-loading { color: var(--text-3); font-size: 13px; padding: 8px 0; }
+.ask-answer-body {
+  background: var(--surface); border: 1px solid var(--border); border-left: 3px solid var(--accent);
+  border-radius: 8px; padding: 16px 18px; color: var(--text); font-size: 14px; line-height: 1.65;
+}
+.ask-answer-body p { margin: 0 0 10px; }
+.ask-answer-body p:last-child { margin-bottom: 0; }
+.ask-answer-body ul { margin: 6px 0 12px; padding-left: 20px; }
+.ask-answer-body li { margin: 3px 0; }
+.ask-answer-body code { background: var(--surface-3); padding: 1px 5px; border-radius: 4px; font-size: 12px; }
+.ask-h { font-size: 14px; font-weight: 650; color: var(--text); margin: 14px 0 8px; }
+.ask-h:first-child { margin-top: 0; }
+.ask-tbl { border-collapse: collapse; width: 100%; margin: 8px 0 12px; font-size: 13px; }
+.ask-tbl th, .ask-tbl td { border: 1px solid var(--border); padding: 6px 10px; text-align: left; }
+.ask-tbl th { background: var(--surface-2); color: var(--text-2); font-weight: 600; }
+.ask-src-head { font-size: 11px; text-transform: uppercase; letter-spacing: .6px; color: var(--text-3); margin: 18px 0 8px; }
+.ask-src {
+  display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
+  padding: 8px 12px; margin-bottom: 6px; background: var(--surface); border: 1px solid var(--border);
+  border-left: 3px solid var(--neutral); border-radius: 6px; font-size: 13px;
+}
+.ask-src.bullish { border-left-color: var(--bull); }
+.ask-src.bearish { border-left-color: var(--bear); }
+.ask-src-sum { color: var(--text); flex: 1; min-width: 200px; }
+.ask-src-meta { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
