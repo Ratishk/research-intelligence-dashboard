@@ -648,6 +648,16 @@ tr:hover td { background: var(--surface-2); }
 .subview { display: none; }
 .subview.active { display: block; animation: fade .18s ease; }
 
+/* ─── Watchlist heatmap ─────────────────────────────────────────────────────── */
+.hm-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(78px, 1fr)); gap: 6px; }
+.hm-cell {
+  border: 1px solid var(--border); border-radius: 7px; padding: 10px 8px;
+  text-align: center; cursor: pointer; transition: transform .1s, border-color .12s;
+}
+.hm-cell:hover { transform: translateY(-1px); border-color: var(--border-2); }
+.hm-sym { font-family: var(--font-num); font-weight: 700; font-size: 13px; }
+.hm-score { font-family: var(--font-num); font-size: 11px; color: var(--text-2); margin-top: 2px; }
+
 /* ─── Composite gauges ──────────────────────────────────────────────────────── */
 .gauge-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
 @media (max-width: 800px) { .gauge-grid { grid-template-columns: 1fr; } }
@@ -926,6 +936,39 @@ tr:hover td { background: var(--surface-2); }
 .pulse-metric b { font-family: var(--font-num); }
 .pulse-metric .up { color: var(--bull); } .pulse-metric .down { color: var(--bear); }
 .pulse-metric .lbl { color: var(--text-3); font-size: 10px; text-transform: uppercase; display: block; }
+
+/* ─── Ticker Dossier ────────────────────────────────────────────────────────── */
+.dossier-overlay {
+  position: fixed; inset: 0; z-index: 1000;
+  background: rgba(0,0,0,.55); backdrop-filter: blur(2px);
+  display: flex; align-items: flex-start; justify-content: center; padding: 8vh 16px 16px;
+}
+.dossier-overlay[hidden] { display: none; }
+.dossier-box {
+  width: 100%; max-width: 760px; max-height: 84vh; overflow-y: auto;
+  background: var(--surface); border: 1px solid var(--border-2);
+  border-radius: var(--radius-lg); box-shadow: 0 20px 60px rgba(0,0,0,.6);
+  padding: 18px 20px;
+}
+.dossier-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+.dossier-sym { font-family: var(--font-num); font-size: 22px; font-weight: 700; }
+.dossier-name { font-size: 13px; color: var(--text-3); margin-left: 8px; }
+.dpill-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(92px, 1fr)); gap: 8px; margin-bottom: 16px; }
+.dpill { background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius); padding: 8px 10px; }
+.dpill-label { font-size: 10px; color: var(--text-3); text-transform: uppercase; letter-spacing: .4px; margin-bottom: 3px; }
+.dpill-val { font-family: var(--font-num); font-size: 15px; font-weight: 600; }
+.dpill-val.pos { color: var(--bull); } .dpill-val.neg { color: var(--bear); }
+.dossier-sec { margin-bottom: 16px; }
+.dossier-sec .section-label { margin-bottom: 8px; display: block; }
+.dflow { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; font-size: 13px;
+  background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius); padding: 10px 12px; }
+.dflow-grp b { color: var(--text-3); font-weight: 600; font-size: 11px; text-transform: uppercase; margin-right: 4px; }
+.dflow-net { margin-left: auto; font-family: var(--font-num); font-weight: 700; }
+.dflow-net.bull { color: var(--bull); } .dflow-net.bear { color: var(--bear); }
+.dthesis { font-size: 13px; padding: 5px 0; border-bottom: 1px solid var(--border); }
+.dthesis:last-child { border-bottom: none; }
+.sig-ticker { cursor: pointer; }
+.sig-ticker:hover { background: rgba(59,130,246,.25); }
 
 /* ─── Command palette (⌘K) ──────────────────────────────────────────────────── */
 .cmdk-overlay {

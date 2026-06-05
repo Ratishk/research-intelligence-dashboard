@@ -67,182 +67,6 @@ async function refreshIngestStatus() {
   } catch (_) {}
 }
 
-// ─── BRIEF ───────────────────────────────────────────────────────────────────
-let _briefIndustry = "";
-
-async function populateBriefIndustries() {
-  const sel = document.getElementById("brief-industry");
-  if (sel.dataset.loaded) return;
-  try {
-    const inds = await api("/api/industries");
-    inds.filter(i => i.signal_count > 0)
-        .sort((a,b) => b.signal_count - a.signal_count)
-        .forEach(i => {
-          const o = document.createElement("option");
-          o.value = i.name;
-          o.textContent = `${i.name} (${i.signal_count})`;
-          sel.appendChild(o);
-        });
-    sel.dataset.loaded = "1";
-  } catch (_) {}
-}
-
-async function renderBrief() {
-  await populateBriefIndustries();
-  const q = _briefIndustry ? `&industry=${encodeURIComponent(_briefIndustry)}` : "";
-  const data = await api(`/api/brief?hours=48${q}`);
-
-  // Stats row — bullish/bearish are clickable to jump to Signals tab
-  const { signal_count, by_direction, today_items, total_items } = data;
-  document.getElementById("brief-stats").innerHTML = [
-    { label:"Items in DB",    value:total_items.toLocaleString(), cls:"accent",  dir:"" },
-    { label:"Signals (48h)",  value:signal_count,                 cls:"",        dir:"" },
-    { label:"Bullish signals",value:by_direction.bullish || 0,    cls:"bull",    dir:"bullish" },
-    { label:"Bearish signals",value:by_direction.bearish || 0,    cls:"bear",    dir:"bearish" },
-  ].map(s => `<div class="stat-card${s.dir ? " clickable" : ""}" ${s.dir ? `data-jump="${s.dir}"` : ""}>
-    <div class="stat-value ${s.cls}">${s.value}</div>
-    <div class="stat-label">${s.label}</div>
-  </div>`).join("");
-
-  document.querySelectorAll(".stat-card[data-jump]").forEach(card =>
-    card.addEventListener("click", () => {
-      const dir = card.dataset.jump;
-      // Set direction filter and switch to Signals tab
-      _sigDirection = dir;
-      document.querySelectorAll(".dir-btn").forEach(b => {
-        b.classList.toggle("active", b.dataset.dir === dir);
-      });
-      switchTab("signals");
-    })
-  );
-
-  document.getElementById("brief-hours").textContent = "Last 48 hours";
-
-  // Top actionable signals
-  const sigEl = document.getElementById("brief-signals");
-  if (!data.top_actionable.length) {
-    sigEl.innerHTML = emptyState("📡","No signals yet",
-      "Run ingestion, then wait for hourly classification — or trigger it manually.");
-  } else {
-    sigEl.innerHTML = data.top_actionable.map(s => briefSigCard(s)).join("");
-    sigEl.querySelectorAll("[data-research]").forEach(btn =>
-      btn.addEventListener("click", () => triggerResearch(btn))
-    );
-  }
-
-  // Sector pulse
-  const secEl = document.getElementById("brief-sectors");
-  if (!data.sector_pulse.length) {
-    secEl.innerHTML = `<div style="color:var(--text-3);font-size:12px;padding:8px 0">No sector data yet</div>`;
-  } else {
-    const maxTotal = Math.max(...data.sector_pulse.map(s => s.total), 1);
-    secEl.innerHTML = data.sector_pulse.map(s => {
-      const bullPct = Math.round((s.bullish / s.total) * 100);
-      const bearPct = Math.round((s.bearish / s.total) * 100);
-      return `<div class="sector-row">
-        <span class="sector-name" title="${esc(s.sector)}">${esc(s.sector)}</span>
-        <div class="sector-bar-wrap">
-          <div class="sector-bar-bull" style="height:${bullPct}%"></div>
-          <div class="sector-bar-bear" style="height:${bearPct}%"></div>
-        </div>
-        <span class="sector-counts"><span style="color:var(--bull)">▲${s.bullish}</span> <span style="color:var(--bear)">▼${s.bearish}</span></span>
-      </div>`;
-    }).join("");
-  }
-
-  // Hot tickers
-  const tickEl = document.getElementById("brief-tickers");
-  if (!data.hot_tickers.length) {
-    tickEl.innerHTML = `<div style="color:var(--text-3);font-size:12px;padding:8px 0">No ticker data yet</div>`;
-  } else {
-    tickEl.innerHTML = data.hot_tickers.map(t => {
-      const total = t.total || 1;
-      const bullW = Math.round((t.bullish / total) * 100);
-      const bearW = Math.round((t.bearish / total) * 100);
-      const cls = t.bullish > t.bearish ? "bull" : t.bearish > t.bullish ? "bear" : "";
-      return `<div class="hot-ticker-row">
-        <span class="ht-sym" style="color:${cls === "bull" ? "var(--bull)" : cls === "bear" ? "var(--bear)" : "var(--text)"}">${esc(t.ticker)}</span>
-        <div class="ht-bar">
-          <div class="ht-bull" style="width:${bullW}%"></div>
-          <div class="ht-bear" style="width:${bearW}%"></div>
-        </div>
-        <span class="ht-counts">${t.bullish}↑ ${t.bearish}↓</span>
-      </div>`;
-    }).join("");
-  }
-
-  // Under the radar
-  const radarWrap = document.getElementById("brief-radar-wrap");
-  const radarEl   = document.getElementById("brief-radar");
-  if (data.under_the_radar && data.under_the_radar.length) {
-    radarWrap.style.display = "block";
-    radarEl.innerHTML = data.under_the_radar.map(radarCard).join("");
-    radarEl.querySelectorAll("[data-research]").forEach(btn =>
-      btn.addEventListener("click", () => triggerResearch(btn))
-    );
-  } else {
-    radarWrap.style.display = "none";
-  }
-
-  // AI synthesis placeholder
-  const aiEl = document.getElementById("ai-synthesis");
-  if (!aiEl.dataset.loaded) {
-    aiEl.innerHTML = `<span style="color:var(--text-3);font-size:13px">Click "Generate brief" for an AI synthesis of today's signals.</span>`;
-  }
-}
-
-function briefSigCard(s) {
-  const tickers = (s.entities.tickers || []).slice(0, 5);
-  const techs   = (s.entities.technologies || []).slice(0, 3);
-  return `<div class="sig-card ${esc(s.direction)}" style="margin-bottom:10px">
-    <div class="sig-top">
-      <span class="sig-dir ${esc(s.direction)}">${s.direction}</span>
-      <span class="sig-summary">${esc(s.summary)}</span>
-      <span class="sig-conf">${Math.round(s.confidence*100)}%</span>
-    </div>
-    <div class="confbar"><div class="confbar-fill" style="width:${Math.round(s.confidence*100)}%"></div></div>
-    <div class="sig-meta">
-      <span class="sig-type-tag">${esc(s.signal_type.replace(/_/g," "))}</span>
-      ${tickers.map(t => `<span class="sig-ticker">${esc(t)}</span>`).join("")}
-      ${techs.map(t => `<span class="sig-tech">🔬 ${esc(t)}</span>`).join("")}
-      ${s.speculative ? `<span class="sig-spec">speculative</span>` : ""}
-      ${s.url ? `<a href="${esc(s.url)}" target="_blank" rel="noopener" class="sig-source-link">source ↗</a>` : ""}
-      <span class="sig-time">${fmtAgo(s.created_at)}</span>
-    </div>
-    <div id="brief-${s.id}"></div>
-    <div class="sig-meta" style="margin-top:6px">
-      <button class="btn-sm" data-research="${s.id}">Get research brief</button>
-    </div>
-  </div>`;
-}
-
-function radarCard(s) {
-  const score = s.alpha_score ?? 0;
-  const cls   = score >= 9 ? "high" : score >= 6 ? "mid" : "low";
-  const tickers = (s.entities.tickers || []).slice(0, 4);
-  return `<div class="radar-card">
-    <div class="sig-top">
-      <span class="sig-dir ${esc(s.direction)}">${s.direction}</span>
-      <span class="sig-summary">${esc(s.summary)}</span>
-      <span style="display:flex;gap:6px;align-items:center;flex-shrink:0">
-        <span class="alpha-badge ${cls}">${score}/12 · ${esc(s.alpha_label || "")}</span>
-        <span class="sig-conf">${Math.round(s.confidence*100)}%</span>
-      </span>
-    </div>
-    <div class="confbar"><div class="confbar-fill" style="width:${Math.round(s.confidence*100)}%"></div></div>
-    <div class="sig-meta">
-      <span class="sig-type-tag">${esc(s.signal_type.replace(/_/g," "))}</span>
-      ${tickers.map(t => `<span class="sig-ticker">${esc(t)}</span>`).join("")}
-      ${s.url ? `<a href="${esc(s.url)}" target="_blank" rel="noopener" class="sig-source-link">source ↗</a>` : ""}
-      <span class="sig-time">${fmtAgo(s.created_at)}</span>
-    </div>
-    <div id="brief-${s.id}"></div>
-    <div class="sig-meta" style="margin-top:6px">
-      <button class="btn-sm" data-research="${s.id}">Get research brief</button>
-    </div>
-  </div>`;
-}
-
 async function triggerResearch(btn) {
   const id = btn.dataset.research;
   btn.disabled = true; btn.textContent = "Researching…";
@@ -267,7 +91,7 @@ document.getElementById("synthesize-btn")?.addEventListener("click", async btn =
       `<span class="bullet">${esc(line)}</span>`
     ).join("");
   } catch { toast("AI synthesis failed"); }
-  b.textContent = "Generate brief"; b.disabled = false;
+  b.textContent = "Generate"; b.disabled = false;
 });
 
 // ─── FEED ────────────────────────────────────────────────────────────────────
@@ -337,29 +161,53 @@ async function renderSignals() {
     el.innerHTML = emptyState("📊","No signals match","Try removing filters, or run ingestion and wait for hourly classification.");
     return;
   }
-  el.innerHTML = signals.map(sigCard).join("");
+  el.innerHTML = signals.map(s => signalCard(s, "full")).join("");
   el.querySelectorAll("[data-research]").forEach(btn =>
     btn.addEventListener("click", () => triggerResearch(btn))
   );
 }
 
-function sigCard(s) {
-  const tickers = (s.entities.tickers || []).slice(0, 6);
-  const techs   = (s.entities.technologies || []).slice(0, 4);
-  return `<div class="sig-card ${esc(s.direction)}">
+// Clickable ticker chips (open the dossier). Used everywhere a signal renders.
+function tickerChips(list, n) {
+  return (list || []).slice(0, n).map(t =>
+    `<span class="sig-ticker" data-ticker="${esc(t)}">${esc(t)}</span>`).join("");
+}
+
+// Unified signal card. size: "full" (Signals/Brief/Radar) | "mini" (Home cards).
+// variant: "radar" gives the gold under-the-radar treatment.
+function signalCard(s, size = "full", variant = "") {
+  const dir = esc(s.direction || "neutral");
+  const ents = s.entities || {};
+  if (size === "mini") {
+    return `<div class="mini-sig">
+      <div class="mini-dir ${dir}"></div>
+      <div class="mini-body">
+        <div class="mini-summary">${esc(s.summary)}</div>
+        <div class="mini-meta">
+          ${s.alpha_score != null ? alphaBadge(s) : ""}
+          <span class="sig-type-tag">${esc((s.signal_type || "").replace(/_/g," "))}</span>
+          ${tickerChips(ents.tickers, 3)}
+          <span class="sig-time">${fmtAgo(s.created_at)}</span>
+        </div>
+      </div>
+    </div>`;
+  }
+  const techs = (ents.technologies || []).slice(0, variant === "radar" ? 0 : 4);
+  const conf = Math.round((s.confidence || 0) * 100);
+  return `<div class="${variant === "radar" ? "radar-card" : "sig-card " + dir}">
     <div class="sig-top">
-      <span class="sig-dir ${esc(s.direction)}">${s.direction}</span>
+      <span class="sig-dir ${dir}">${dir}</span>
       <span class="sig-summary">${esc(s.summary)}</span>
       <span style="display:flex;gap:6px;align-items:center;flex-shrink:0">
-        ${alphaBadge(s)}
-        <span class="sig-conf">${Math.round(s.confidence*100)}%</span>
+        ${s.alpha_score != null ? alphaBadge(s) : ""}
+        <span class="sig-conf">${conf}%</span>
       </span>
     </div>
-    <div class="confbar"><div class="confbar-fill" style="width:${Math.round(s.confidence*100)}%"></div></div>
+    <div class="confbar"><div class="confbar-fill ${dir === "radar" ? "" : ""}" style="width:${conf}%"></div></div>
     <div class="sig-meta">
-      <span class="sig-type-tag">${esc(s.signal_type.replace(/_/g," "))}</span>
+      <span class="sig-type-tag">${esc((s.signal_type || "").replace(/_/g," "))}</span>
       ${s.industry ? `<span class="tag">${esc(s.industry)}</span>` : ""}
-      ${tickers.map(t => `<span class="sig-ticker">${esc(t)}</span>`).join("")}
+      ${tickerChips(ents.tickers, 6)}
       ${techs.map(t => `<span class="sig-tech">🔬 ${esc(t)}</span>`).join("")}
       ${s.speculative ? `<span class="sig-spec">speculative</span>` : ""}
       ${s.url ? `<a href="${esc(s.url)}" target="_blank" rel="noopener" class="sig-source-link">source ↗</a>` : ""}
@@ -457,7 +305,7 @@ function wlCard(t) {
     : "";
 
   return `<div class="wl-card">
-    <div class="wl-sym">${esc(t.symbol)}</div>
+    <div class="wl-sym" data-ticker="${esc(t.symbol)}">${esc(t.symbol)}</div>
     <div class="wl-name">${esc(t.name || "—")}</div>
     ${t.price != null
       ? `<div class="wl-price">$${t.price.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</div>`
@@ -594,28 +442,7 @@ async function renderSources() {
 }
 
 // Brief industry selector
-document.getElementById("brief-industry")?.addEventListener("change", e => {
-  _briefIndustry = e.target.value;
-  renderBrief();
-});
-
 // ─── HOME ─────────────────────────────────────────────────────────────────────
-function miniSig(s, withAlpha) {
-  const tickers = (s.entities?.tickers || []).slice(0, 3);
-  return `<div class="mini-sig">
-    <div class="mini-dir ${esc(s.direction)}"></div>
-    <div class="mini-body">
-      <div class="mini-summary">${esc(s.summary)}</div>
-      <div class="mini-meta">
-        ${withAlpha && s.alpha_score != null ? `<span class="alpha-badge ${s.alpha_score>=9?"high":s.alpha_score>=6?"mid":"low"}">${s.alpha_score}/12 · ${esc(s.alpha_label||"")}</span>` : ""}
-        <span class="sig-type-tag">${esc((s.signal_type||"").replace(/_/g," "))}</span>
-        ${tickers.map(t => `<span class="sig-ticker">${esc(t)}</span>`).join("")}
-        <span class="sig-time">${fmtAgo(s.created_at)}</span>
-      </div>
-    </div>
-  </div>`;
-}
-
 async function renderHome() {
   const d = await api("/api/home");
 
@@ -634,13 +461,13 @@ async function renderHome() {
   // Non-consensus (the headline non-consensus view)
   const nc = document.getElementById("home-noncon");
   nc.innerHTML = d.non_consensus.length
-    ? d.non_consensus.map(s => miniSig(s, true)).join("")
+    ? d.non_consensus.map(s => signalCard(s, "mini")).join("")
     : `<div class="mini-sub" style="padding:8px 0">No high-alpha signals in the last 48h yet.</div>`;
 
   // Top signals
   const ts = document.getElementById("home-signals");
   ts.innerHTML = d.top_signals.length
-    ? d.top_signals.map(s => miniSig(s, false)).join("")
+    ? d.top_signals.map(s => signalCard(s, "mini")).join("")
     : `<div class="mini-sub" style="padding:8px 0">No directional signals yet.</div>`;
 
   // Industry pulse (clickable → per-industry brief)
@@ -658,14 +485,6 @@ async function renderHome() {
         </div>`;
       }).join("")
     : `<div class="mini-sub" style="padding:8px 0">No industry signals yet.</div>`;
-  ind.querySelectorAll("[data-industry]").forEach(row =>
-    row.addEventListener("click", () => {
-      _briefIndustry = row.dataset.industry;
-      const sel = document.getElementById("brief-industry");
-      if (sel) sel.value = _briefIndustry;
-      switchTab("brief");
-    })
-  );
 
   // Theme shifts
   const th = document.getElementById("home-themes");
@@ -724,6 +543,12 @@ async function renderHome() {
       }).join("")
     : `<div class="mini-sub" style="padding:8px 0">No prediction markets yet.</div>`;
 
+  // AI synthesis placeholder (the one piece kept from the retired Brief tab)
+  const aiEl = document.getElementById("ai-synthesis");
+  if (aiEl && !aiEl.dataset.loaded) {
+    aiEl.innerHTML = `<span style="color:var(--text-3);font-size:13px">Click "Generate" for an AI synthesis of today's signals.</span>`;
+  }
+
   // Card "View all →" links
   document.querySelectorAll(".card-link[data-goto]").forEach(link =>
     link.addEventListener("click", () => {
@@ -751,7 +576,7 @@ function flowGrp(label, buy, sell) {
 function flowRow(f) {
   const diverge = f.divergence;
   return `<div class="flow-row ${diverge ? "diverge" : ""}">
-    <span class="flow-sym">${esc(f.ticker)}</span>
+    <span class="flow-sym" data-ticker="${esc(f.ticker)}">${esc(f.ticker)}</span>
     <div class="flow-bars">
       ${flowGrp("Insider", f.insider_buy, f.insider_sell)}
       ${flowGrp("Congress", f.congress_buy, f.congress_sell)}
@@ -1173,6 +998,36 @@ function gaugeCard(label, c, sub) {
   </div>`;
 }
 
+async function renderHeatmap() {
+  const el = document.getElementById("heatmap");
+  if (!el) return;
+  try {
+    const lists = await api("/api/watchlists");
+    const seen = new Set();
+    const cells = [];
+    for (const name of Object.keys(lists)) {
+      for (const t of lists[name]) {
+        if (seen.has(t.symbol)) continue;
+        seen.add(t.symbol);
+        cells.push(t);
+      }
+    }
+    // color by signal_score [-1,1] → red..gray..green
+    const cell = t => {
+      const s = t.signal_score || 0;
+      const a = Math.min(1, Math.abs(s));
+      const bg = s > 0.05 ? `rgba(46,189,133,${0.12 + a*0.5})`
+               : s < -0.05 ? `rgba(240,97,109,${0.12 + a*0.5})`
+               : "var(--surface-2)";
+      return `<div class="hm-cell" data-ticker="${esc(t.symbol)}" style="background:${bg}" title="${esc(t.symbol)} · score ${s}">
+        <div class="hm-sym">${esc(t.symbol)}</div>
+        <div class="hm-score">${s>0?"+":""}${s}</div>
+      </div>`;
+    };
+    el.innerHTML = `<div class="hm-grid">${cells.map(cell).join("")}</div>`;
+  } catch { el.innerHTML = `<div class="mini-sub">Heatmap unavailable.</div>`; }
+}
+
 async function renderComposites() {
   const el = document.getElementById("composite-gauges");
   if (!el) return;
@@ -1317,9 +1172,85 @@ async function renderMacro() {
   });
 }
 
+// ─── Ticker Dossier ───────────────────────────────────────────────────────────
+function metricPill(label, val, cls) {
+  return `<div class="dpill"><div class="dpill-label">${esc(label)}</div><div class="dpill-val ${cls||""}">${val}</div></div>`;
+}
+
+async function renderTickerDossier(sym) {
+  const ov = document.getElementById("dossier");
+  ov.hidden = false;
+  document.getElementById("dossier-title").innerHTML = `<span class="dossier-sym">${esc(sym)}</span>`;
+  const body = document.getElementById("dossier-body");
+  body.innerHTML = `<div class="empty"><div class="empty-icon">⏳</div><div class="empty-title">Loading ${esc(sym)}…</div></div>`;
+  try {
+    const d = await api(`/api/ticker/${encodeURIComponent(sym)}`);
+    const f = d.smart_money_flow;
+    const chg = d.change_pct;
+    const flowDir = f ? (f.smart_direction > 0 ? "bull" : f.smart_direction < 0 ? "bear" : "") : "";
+    document.getElementById("dossier-title").innerHTML =
+      `<span class="dossier-sym">${esc(sym)}</span> <span class="dossier-name">${esc(d.name || "")}</span>`;
+    body.innerHTML = `
+      <div class="dpill-row">
+        ${metricPill("Price", d.price != null ? "$" + d.price : "—")}
+        ${metricPill("Today", chg != null ? (chg>0?"+":"")+chg+"%" : "—", chg>0?"pos":chg<0?"neg":"")}
+        ${metricPill("Consensus", esc(d.consensus || "—"), d.consensus_score>0.15?"pos":d.consensus_score<-0.15?"neg":"")}
+        ${metricPill("RVOL", d.rvol != null ? d.rvol+"×" : "—", d.rvol>=1.5?"pos":"")}
+        ${metricPill("Short vol", d.short_volume_pct != null ? d.short_volume_pct+"%" : "—", d.short_volume_pct>=50?"neg":"")}
+        ${metricPill("FTD", d.ftd_fails != null ? (d.ftd_fails/1e3).toFixed(0)+"K" : "—")}
+        ${metricPill("Analyst", esc(d.analyst_rating ? d.analyst_rating.replace(/_/g," ") : "—"))}
+      </div>
+      ${f ? `<div class="dossier-sec">
+        <div class="section-label">Smart-money flow (14d)</div>
+        <div class="dflow">
+          <span class="dflow-grp"><b>Insider</b> <span class="flow-buy">${f.insider_buy}↑</span> <span class="flow-sell">${f.insider_sell}↓</span></span>
+          <span class="dflow-grp"><b>Congress</b> <span class="flow-buy">${f.congress_buy}↑</span> <span class="flow-sell">${f.congress_sell}↓</span></span>
+          <span class="dflow-grp"><b>Institutional</b> <span class="flow-buy">${f.inst_buy||0}↑</span> <span class="flow-sell">${f.inst_sell||0}↓</span></span>
+          <span class="dflow-net ${flowDir}">net ${f.smart_direction>0?"+":""}${f.smart_direction}</span>
+        </div>
+      </div>` : ""}
+      ${(d.theses||[]).length ? `<div class="dossier-sec">
+        <div class="section-label">Theses</div>
+        ${d.theses.map(t => `<div class="dthesis"><span class="th-dir ${esc(t.direction)}">${esc(t.direction)}</span> ${esc(t.title)} <span class="mini-sub">· ${esc(t.status)}</span></div>`).join("")}
+      </div>` : ""}
+      <div class="dossier-sec">
+        <div class="section-header">
+          <span class="section-label">Recent signals (${d.signal_count})</span>
+          <button class="btn-sm" id="dossier-lens">◉ Investor Lens</button>
+        </div>
+        <div id="dossier-signals">${(d.recent_signals||[]).slice(0,8).map(s => signalCard(s, "mini")).join("") || '<div class="mini-sub">No recent signals.</div>'}</div>
+      </div>
+      <div id="dossier-lens-out"></div>`;
+    document.getElementById("dossier-lens")?.addEventListener("click", async () => {
+      const out = document.getElementById("dossier-lens-out");
+      out.innerHTML = `<div class="mini-sub" style="padding:8px 0">Convening the panel…</div>`;
+      try {
+        const r = await api("/api/investor-lens", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ticker:sym}) });
+        out.innerHTML = `<div class="dossier-sec"><div class="section-label">Investor Lens</div>
+          ${r.consensus ? `<div class="lens-consensus">${esc(r.consensus)}</div>` : ""}
+          <div class="lens-grid">${(r.personas||[]).map(p => `<div class="lens-card"><div class="lens-head"><span class="lens-name">${esc(p.name)}</span><span class="lens-verdict ${esc((p.verdict||"neutral").toLowerCase())}">${esc(p.verdict)}</span></div><div class="lens-rationale">${esc(p.rationale||"")}</div></div>`).join("")}</div></div>`;
+      } catch { out.innerHTML = `<div class="mini-sub">Lens failed.</div>`; }
+    });
+  } catch {
+    body.innerHTML = emptyState("⚠️", "Couldn't load " + esc(sym), "Try again shortly.");
+  }
+}
+
+function closeDossier() { document.getElementById("dossier").hidden = true; }
+document.getElementById("dossier-close")?.addEventListener("click", closeDossier);
+document.getElementById("dossier")?.addEventListener("click", e => { if (e.target.id === "dossier") closeDossier(); });
+// Delegated: any ticker chip / watchlist symbol opens the dossier.
+document.addEventListener("click", e => {
+  const el = e.target.closest("[data-ticker]");
+  if (el) { e.stopPropagation(); renderTickerDossier(el.dataset.ticker); }
+});
+document.addEventListener("keydown", e => {
+  if (e.key === "Escape" && !document.getElementById("dossier").hidden) closeDossier();
+});
+
 // ─── Command palette (⌘K) ─────────────────────────────────────────────────────
 const CMDK_TABS = [
-  ["conviction","★ Daily Findings"],["home","Home"],["brief","Brief"],["theses","Theses"],["guide","Guide"],
+  ["conviction","★ Daily Findings"],["home","Home"],["theses","Theses"],["guide","Guide"],
   ["smart-money","Smart Money"],["forecasts","Forecasts"],["investor-lens","Investor Lens"],
   ["macro","Macro & Pulse"],["signals","Signals"],["theme-shifts","Theme Shifts"],["trends","Trends"],
   ["feed","Feed"],["watchlists","Watchlists"],["industries","Industries"],["sources","Sources"],
@@ -1393,7 +1324,6 @@ async function renderTab(tab) {
     else if (tab === "guide")   renderGuide();
     else if (tab === "home")    await renderHome();
     else if (tab === "macro")   await renderMacro();
-    else if (tab === "brief")   await renderBrief();
     else if (tab === "smart-money") await renderSmartMoney();
     else if (tab === "investor-lens") { /* input-driven; nothing to fetch on open */ }
     else if (tab === "forecasts") { _fcData = null; await renderForecasts(); }
@@ -1401,7 +1331,7 @@ async function renderTab(tab) {
     else if (tab === "signals") await renderSignals();
     else if (tab === "watchlists") await renderWatchlists();
     else if (tab === "theme-shifts") await renderThemeShifts();
-    else if (tab === "trends")  { await renderComposites(); await window.renderTrends(); }
+    else if (tab === "trends")  { await renderComposites(); await renderHeatmap(); await window.renderTrends(); }
     else if (tab === "industries") await renderIndustries();
     else if (tab === "sources") await renderSources();
   } catch (e) {

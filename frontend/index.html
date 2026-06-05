@@ -24,7 +24,6 @@
         <div class="nav-group">Intelligence</div>
         <button data-tab="conviction" class="active"><i>★</i>Daily Findings</button>
         <button data-tab="home"><i>◰</i>Home</button>
-        <button data-tab="brief"><i>▤</i>Brief</button>
         <button data-tab="theses"><i>⚑</i>Theses</button>
         <button data-tab="guide"><i>?</i>Guide</button>
 
@@ -155,46 +154,10 @@
           </div>
         </div>
       </div>
-    </section>
-
-    <!-- BRIEF -->
-    <section id="view-brief" class="view">
-      <div class="filter-bar">
-        <label class="filter-meta" style="margin:0">Scope:</label>
-        <select id="brief-industry" class="filter-select">
-          <option value="">All industries</option>
-        </select>
-      </div>
-      <div id="brief-stats" class="stat-row"></div>
-      <div class="brief-grid">
-        <div class="brief-main">
-          <div class="section-header">
-            <span class="section-label">Top signals</span>
-            <span id="brief-hours" class="section-meta"></span>
-          </div>
-          <div id="brief-signals"></div>
-        </div>
-        <div class="brief-side">
-          <div class="section-header"><span class="section-label">Sector pulse</span></div>
-          <div id="brief-sectors"></div>
-          <div class="section-header" style="margin-top:20px">
-            <span class="section-label">Hot tickers</span>
-          </div>
-          <div id="brief-tickers"></div>
-        </div>
-      </div>
-      <div id="brief-radar-wrap" style="display:none">
-        <div class="section-header" style="margin-bottom:10px">
-          <span class="section-label">⚡ Under the radar</span>
-          <span class="section-meta">Non-consensus · alpha ≥ 6/12</span>
-        </div>
-        <div id="brief-radar"></div>
-      </div>
-
-      <div class="ai-brief-wrap">
+      <div class="ai-brief-wrap" style="margin-top:16px">
         <div class="section-header">
           <span class="section-label">AI synthesis</span>
-          <button id="synthesize-btn" class="btn-sm">Generate brief</button>
+          <button id="synthesize-btn" class="btn-sm">Generate</button>
         </div>
         <div id="ai-synthesis" class="ai-text"></div>
       </div>
@@ -412,6 +375,11 @@
         <span class="section-meta">Weighted scores · −100 risk-off/bearish … +100 risk-on/bullish</span>
       </div>
       <div id="composite-gauges" class="gauge-grid"></div>
+      <div class="section-header" style="margin-top:20px">
+        <span class="section-label">Watchlist heatmap</span>
+        <span class="section-meta">net signal score per ticker · green bullish / red bearish · click to open</span>
+      </div>
+      <div id="heatmap"></div>
       <div class="chart-wrap" style="margin-top:16px"><canvas id="chart-directions"></canvas></div>
       <div class="chart-wrap"><canvas id="chart-topics"></canvas></div>
     </section>
@@ -437,6 +405,16 @@
     </section>
 
     </main>
+  </div>
+
+  <div id="dossier" class="dossier-overlay" hidden>
+    <div class="dossier-box">
+      <div class="dossier-head">
+        <div id="dossier-title"></div>
+        <button id="dossier-close" class="btn-sm">✕ Esc</button>
+      </div>
+      <div id="dossier-body"></div>
+    </div>
   </div>
 
   <div id="cmdk" class="cmdk-overlay" hidden>

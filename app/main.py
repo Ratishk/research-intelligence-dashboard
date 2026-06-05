@@ -1070,8 +1070,14 @@ def _ticker_dossier(db: Session, ticker: str) -> dict:
         except json.JSONDecodeError:
             tks = set()
         if sym in tks:
-            mine.append({"summary": s.summary, "direction": s.direction,
-                         "type": s.signal_type, "confidence": round(s.confidence, 2)})
+            mine.append({
+                "summary": s.summary, "direction": s.direction,
+                "type": s.signal_type, "signal_type": s.signal_type,
+                "confidence": round(s.confidence, 2),
+                "entities": json.loads(s.entities_json or "{}"),
+                "url": s.item.url if s.item else "",
+                "created_at": s.created_at.isoformat() if s.created_at else None,
+            })
     flow = next((f for f in _smart_money_data(db, 21)["flow"] if f["ticker"] == sym), None)
     tk = db.get(Ticker, sym)
     return {
@@ -1079,14 +1085,40 @@ def _ticker_dossier(db: Session, ticker: str) -> dict:
         "name": tk.name if tk else None,
         "price": tk.price if tk else None,
         "consensus": tk.consensus_label if tk else None,
+        "consensus_score": tk.consensus_score if tk else None,
         "analyst_rating": tk.analyst_rating if tk else None,
+        "analyst_target": tk.analyst_target if tk else None,
         "short_interest_pct": tk.short_interest_pct if tk else None,
         "rvol": tk.rvol if tk else None,
         "change_pct": tk.change_pct if tk else None,
+        "week52_high": tk.week52_high if tk else None,
+        "week52_low": tk.week52_low if tk else None,
         "smart_money_flow": flow,
         "recent_signals": mine[:15],
         "signal_count": len(mine),
     }
+
+
+@app.get("/api/ticker/{symbol}")
+def get_ticker(symbol: str, db: Session = Depends(get_db)) -> JSONResponse:
+    """Everything we know about one ticker, in one payload (the Ticker Dossier)."""
+    sym = symbol.upper()
+    d = _ticker_dossier(db, sym)
+    # Short-volume + fails-to-deliver
+    from app.processing.short_volume import get_short_volume
+    from app.processing.ftd import get_ftd
+    sv = get_short_volume([sym]).get("tickers", [])
+    d["short_volume_pct"] = sv[0]["short_pct"] if sv else None
+    ftd = get_ftd([sym]).get("tickers", [])
+    d["ftd_fails"] = ftd[0]["fails"] if ftd else None
+    # Theses touching this ticker
+    theses = db.execute(select(Thesis)).scalars().all()
+    d["theses"] = [
+        {"id": t.id, "title": t.title, "direction": t.direction, "status": t.status}
+        for t in theses
+        if sym in {x.strip().upper() for x in (t.tickers or "").split(",")}
+    ]
+    return JSONResponse(d)
 
 
 @app.post("/api/investor-lens")
