@@ -44,6 +44,19 @@ FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend"
 
 app = FastAPI(title="Research Intelligence Dashboard")
 
+
+@app.middleware("http")
+async def _no_cache_static(request, call_next):
+    """Tell the browser not to cache the frontend, so a fresh `python3 run.py`
+    never serves a stale app.js/charts.js against updated HTML (the cause of
+    'failed to load' after edits). Local dev tool — caching buys us nothing."""
+    resp = await call_next(request)
+    path = request.url.path
+    if path == "/" or path.endswith((".js", ".css", ".html")):
+        resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    return resp
+
+
 # -------------------------------------------------------------- ingest state
 _ingest_state: dict = {
     "running": False,
