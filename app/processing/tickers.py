@@ -91,12 +91,26 @@ def refresh_ticker(session, symbol: str) -> None:
 
 
 def refresh_watchlist_tickers(session) -> int:
+    from app.processing.consensus import refresh_consensus
+    from app.processing.short_volume import get_short_volume
+
     symbols = {
         row[0]
         for row in session.execute(select(WatchlistItem.ticker_symbol)).all()
     }
+    # One FINRA pull for all tickers (an always-reachable positioning input).
+    short_vol = {
+        t["symbol"]: t["short_pct"]
+        for t in get_short_volume(list(symbols)).get("tickers", [])
+    }
     for symbol in symbols:
         refresh_ticker(session, symbol)
+        # Re-blend consensus with FINRA short volume + our own signal flow, so it
+        # populates even when yfinance/StockTwits are IP-blocked.
+        ticker = session.get(Ticker, symbol)
+        if ticker is not None:
+            flow = signal_score(session, symbol).get("score")
+            refresh_consensus(ticker, short_vol_pct=short_vol.get(symbol), signal_flow=flow)
     return len(symbols)
 
 

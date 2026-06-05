@@ -448,29 +448,74 @@ def discover_industry(industry_id: int, db: Session = Depends(get_db)) -> JSONRe
 # ---------------------------------------------------------------------- trends
 @app.get("/api/trends")
 def get_trends(days: int = 90, db: Session = Depends(get_db)) -> JSONResponse:
-    """Weekly signal direction counts + top technology mentions, bounded to `days`."""
+    """Signal analytics: distributions (direction/type/ticker/sector) + time series.
+
+    Distributions read well even with little history; the daily-volume series gives
+    the time dimension without the sparse weekly-bucket bars the old chart used.
+    """
     cutoff = datetime.now(timezone.utc) - timedelta(days=days)
-    signals = db.execute(
-        select(Signal).where(Signal.created_at >= cutoff)
-    ).scalars().all()
+    rows = db.execute(
+        select(Signal, Source.type)
+        .join(Item, Signal.item_id == Item.id)
+        .join(Source, Item.source_id == Source.id)
+        .where(Signal.created_at >= cutoff)
+    ).all()
+
+    direction_total = {"bullish": 0, "bearish": 0, "neutral": 0}
+    by_type: dict[str, int] = {}
+    by_source: dict[str, int] = {}
+    ticker_stats: dict[str, dict] = {}
+    sector_stats: dict[str, dict] = {}
+    vol_by_day: dict[str, int] = {}
     topic_weeks: dict[str, dict[str, int]] = {}
-    direction_weeks: dict[str, dict[str, int]] = {}
-    for sig in signals:
-        if not sig.created_at:
-            continue
-        week = sig.created_at.strftime("%Y-W%U")
-        direction_weeks.setdefault(week, {"bullish": 0, "bearish": 0, "neutral": 0})
-        direction_weeks[week][sig.direction] = (
-            direction_weeks[week].get(sig.direction, 0) + 1
-        )
+
+    for sig, stype in rows:
+        d = sig.direction or "neutral"
+        direction_total[d] = direction_total.get(d, 0) + 1
+        by_type[sig.signal_type] = by_type.get(sig.signal_type, 0) + 1
+        by_source[stype] = by_source.get(stype, 0) + 1
+        if sig.created_at:
+            day = _as_aware(sig.created_at).strftime("%Y-%m-%d")
+            vol_by_day[day] = vol_by_day.get(day, 0) + 1
+            week = sig.created_at.strftime("%Y-W%U")
+        else:
+            week = "—"
         try:
-            techs = json.loads(sig.entities_json or "{}").get("technologies", [])
+            ents = json.loads(sig.entities_json or "{}")
         except json.JSONDecodeError:
-            techs = []
-        for tech in techs:
+            ents = {}
+        ind = (sig.item.source.industries[0].name
+               if sig.item and sig.item.source and sig.item.source.industries else "Other")
+        sec = sector_stats.setdefault(ind, {"bullish": 0, "bearish": 0, "total": 0})
+        sec[d] = sec.get(d, 0) + 1
+        sec["total"] += 1
+        for tk in ents.get("tickers", []):
+            sym = str(tk).upper()
+            ts = ticker_stats.setdefault(sym, {"bullish": 0, "bearish": 0, "total": 0})
+            ts[d] = ts.get(d, 0) + 1
+            ts["total"] += 1
+        for tech in ents.get("technologies", []):
             topic_weeks.setdefault(tech, {})
             topic_weeks[tech][week] = topic_weeks[tech].get(week, 0) + 1
-    return JSONResponse({"topics": topic_weeks, "directions": direction_weeks})
+
+    top_tickers = sorted(
+        [{"ticker": k, **v} for k, v in ticker_stats.items()],
+        key=lambda x: x["total"], reverse=True)[:12]
+    top_sectors = sorted(
+        [{"sector": k, **v} for k, v in sector_stats.items()],
+        key=lambda x: x["total"], reverse=True)[:10]
+    volume_series = [{"date": d, "count": vol_by_day[d]} for d in sorted(vol_by_day)]
+
+    return JSONResponse({
+        "direction_total": direction_total,
+        "by_type": by_type,
+        "by_source": by_source,
+        "top_tickers": top_tickers,
+        "top_sectors": top_sectors,
+        "volume_series": volume_series,
+        "topics": topic_weeks,
+        "total": sum(direction_total.values()),
+    })
 
 
 # ---------------------------------------------------------------- theme shifts

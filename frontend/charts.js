@@ -21,57 +21,87 @@ const chartDefaults = {
 };
 
 // ─── Trends tab ───────────────────────────────────────────────────────────────
-let dirChart = null, topicChart = null;
+let _trendCharts = {};
+function _mkChart(id, cfg) {
+  if (_trendCharts[id]) _trendCharts[id].destroy();
+  const el = document.getElementById(id);
+  if (!el) return;
+  _trendCharts[id] = new Chart(el, cfg);
+}
+const _title = t => ({ ...chartDefaults.plugins.title, display:true, text:t });
 
 window.renderTrends = async function () {
-  const data  = await (await fetch("/api/trends")).json();
-  const weeks = Object.keys(data.directions).sort();
+  const d = await (await fetch("/api/trends")).json();
+  const dt = d.direction_total || {bullish:0,bearish:0,neutral:0};
 
-  if (dirChart) dirChart.destroy();
-  dirChart = new Chart(document.getElementById("chart-directions"), {
-    type: "bar",
-    data: {
-      labels: weeks,
+  // 1) Signal volume over time — a clear area chart (replaces the sparse weekly bars).
+  const vs = d.volume_series || [];
+  // cumulative line for a sense of accumulation
+  let run = 0; const cum = vs.map(p => (run += p.count));
+  _mkChart("chart-volume", {
+    type: "line",
+    data: { labels: vs.map(p => p.date.slice(5)),
       datasets: [
-        { label:"Bullish", data: weeks.map(w => data.directions[w]?.bullish||0), backgroundColor:"#22c55e" },
-        { label:"Bearish", data: weeks.map(w => data.directions[w]?.bearish||0), backgroundColor:"#ef4444" },
-        { label:"Neutral", data: weeks.map(w => data.directions[w]?.neutral||0), backgroundColor:"#3d4f66" },
-      ],
-    },
-    options: {
-      ...chartDefaults,
-      plugins: { ...chartDefaults.plugins, title:{ ...chartDefaults.plugins.title, display:true, text:"Signal direction by week" } },
-      scales: gridScales(false, true),
-    },
+        { label:"Signals/day", data: vs.map(p=>p.count), borderColor:"#5B8DEF",
+          backgroundColor:"rgba(91,141,239,.15)", fill:true, tension:.35, pointRadius:2, yAxisID:"y" },
+        { label:"Cumulative", data: cum, borderColor:"#94a3b8", backgroundColor:"transparent",
+          borderDash:[4,4], tension:.35, pointRadius:0, yAxisID:"y1" },
+      ]},
+    options: { ...chartDefaults, plugins:{...chartDefaults.plugins, title:_title("Signal volume over time")},
+      scales: { x:{grid:{color:"#252f42"},ticks:{color:"#677892",maxTicksLimit:8}},
+        y:{position:"left",grid:{color:"#252f42"},ticks:{color:"#677892"},beginAtZero:true},
+        y1:{position:"right",grid:{display:false},ticks:{color:"#5e6b7e"},beginAtZero:true} } },
   });
 
-  const topics = Object.entries(data.topics)
+  // 2) Direction split — a doughnut (instantly readable: how bullish are we overall).
+  _mkChart("chart-direction", {
+    type: "doughnut",
+    data: { labels:["Bullish","Bearish","Neutral"],
+      datasets:[{ data:[dt.bullish,dt.bearish,dt.neutral],
+        backgroundColor:["#22c55e","#ef4444","#3d4f66"], borderWidth:0 }]},
+    options: { ...chartDefaults, cutout:"62%",
+      plugins:{...chartDefaults.plugins, title:_title(`Signal direction (${d.total} total)`),
+        legend:{position:"right", labels:{color:"#a8b8cc",boxWidth:12,padding:12}}} },
+  });
+
+  // 3) Top tickers by signal activity — horizontal stacked bar (bull vs bear).
+  const tk = d.top_tickers || [];
+  _mkChart("chart-tickers", {
+    type: "bar",
+    data: { labels: tk.map(t=>t.ticker),
+      datasets:[
+        { label:"Bullish", data: tk.map(t=>t.bullish), backgroundColor:"#22c55e" },
+        { label:"Bearish", data: tk.map(t=>t.bearish), backgroundColor:"#ef4444" },
+      ]},
+    options: { ...chartDefaults, indexAxis:"y",
+      plugins:{...chartDefaults.plugins, title:_title("Most-active tickers")},
+      scales: gridScales(true, true) },
+  });
+
+  // 4) Signal type mix — doughnut.
+  const types = Object.entries(d.by_type||{}).sort((a,b)=>b[1]-a[1]);
+  _mkChart("chart-types", {
+    type: "doughnut",
+    data: { labels: types.map(([k])=>k.replace(/_/g," ")),
+      datasets:[{ data: types.map(([,v])=>v), backgroundColor: COLORS, borderWidth:0 }]},
+    options: { ...chartDefaults, cutout:"62%",
+      plugins:{...chartDefaults.plugins, title:_title("Signal types"),
+        legend:{position:"right", labels:{color:"#a8b8cc",boxWidth:12,padding:10,font:{size:11}}}} },
+  });
+
+  // 5) Topic mentions over time — line (kept, full width).
+  const weeks = [...new Set(Object.values(d.topics||{}).flatMap(m=>Object.keys(m)))].sort();
+  const topics = Object.entries(d.topics||{})
     .map(([n,m]) => [n, Object.values(m).reduce((a,b)=>a+b,0), m])
     .sort((a,b)=>b[1]-a[1]).slice(0,6);
-
-  if (topicChart) topicChart.destroy();
-  topicChart = new Chart(document.getElementById("chart-topics"), {
+  _mkChart("chart-topics", {
     type: "line",
-    data: {
-      labels: weeks,
-      datasets: topics.map(([name,,wm],i) => ({
-        label: name,
-        data: weeks.map(w => wm[w]||0),
-        borderColor: COLORS[i], backgroundColor:"transparent",
-        tension:.35, pointRadius:3,
-      })),
-    },
-    options: {
-      ...chartDefaults,
-      plugins: { ...chartDefaults.plugins, title:{ ...chartDefaults.plugins.title, display:true, text:"Topic mentions by week" } },
-      scales: gridScales(),
-    },
+    data: { labels: weeks,
+      datasets: topics.map(([name,,wm],i) => ({ label:name, data: weeks.map(w=>wm[w]||0),
+        borderColor: COLORS[i], backgroundColor:"transparent", tension:.35, pointRadius:3 })) },
+    options: { ...chartDefaults, plugins:{...chartDefaults.plugins, title:_title("Topic mentions over time")},
+      scales: gridScales() },
   });
-
-  if (!weeks.length) {
-    document.getElementById("view-trends").insertAdjacentHTML("afterbegin",
-      '<div class="empty"><div class="empty-icon">📈</div><div class="empty-title">No signal history yet</div><div class="empty-sub">Charts populate as signals accrue over time.</div></div>');
-  }
 };
 
 // ─── Theme Shifts charts ──────────────────────────────────────────────────────

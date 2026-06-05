@@ -648,6 +648,10 @@ tr:hover td { background: var(--surface-2); }
 .subview { display: none; }
 .subview.active { display: block; animation: fade .18s ease; }
 
+/* ─── Trends chart grid ─────────────────────────────────────────────────────── */
+.trend-chart-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 16px; }
+@media (max-width: 800px) { .trend-chart-grid { grid-template-columns: 1fr; } }
+
 /* ─── Watchlist heatmap ─────────────────────────────────────────────────────── */
 .hm-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(78px, 1fr)); gap: 6px; }
 .hm-cell {

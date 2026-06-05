@@ -31,9 +31,14 @@ _RATING_SCORE = {
 }
 
 # Component weights (sum need not be 1; we normalize by present components).
-_W_ANALYST = 0.45
-_W_SHORT = 0.25
-_W_SOCIAL = 0.30
+# analyst/short_interest/social come from yfinance+StockTwits (often IP-blocked);
+# short_volume (FINRA) and flow (our own signals) are always reachable, so the
+# score still populates when the blocked sources are unavailable.
+_W_ANALYST = 0.35
+_W_SHORT = 0.20
+_W_SOCIAL = 0.20
+_W_SHORTVOL = 0.15
+_W_FLOW = 0.20
 
 
 def _short_score(short_pct: float | None) -> float | None:
@@ -52,8 +57,22 @@ def _social_score(bull: int, bear: int) -> float | None:
     return (bull - bear) / total
 
 
-def compute_consensus(ticker) -> dict:
-    """Return {score, label, components} for a Ticker ORM object."""
+def _short_vol_score(short_vol_pct: float | None) -> float | None:
+    """FINRA daily short-volume %. ~40% is typical (neutral); >55% bearish,
+    <30% bullish. Maps to [-1, +1]."""
+    if short_vol_pct is None:
+        return None
+    s = (42 - short_vol_pct) / 15.0  # 42% -> 0, 27% -> +1, 57% -> -1
+    return max(-1.0, min(1.0, s))
+
+
+def compute_consensus(ticker, *, short_vol_pct: float | None = None,
+                      signal_flow: float | None = None) -> dict:
+    """Return {score, label, components} for a Ticker.
+
+    short_vol_pct (FINRA) and signal_flow (our net signal direction in [-1,1])
+    are optional unblocked inputs passed by the batch refresh.
+    """
     components: dict[str, float] = {}
 
     rating = (ticker.analyst_rating or "").lower()
@@ -68,10 +87,18 @@ def compute_consensus(ticker) -> dict:
     if soc is not None:
         components["social"] = soc
 
+    svs = _short_vol_score(short_vol_pct)
+    if svs is not None:
+        components["short_volume"] = svs
+
+    if signal_flow is not None and signal_flow != 0:
+        components["flow"] = max(-1.0, min(1.0, signal_flow))
+
     if not components:
         return {"score": None, "label": "no data", "components": {}}
 
-    weights = {"analyst": _W_ANALYST, "short": _W_SHORT, "social": _W_SOCIAL}
+    weights = {"analyst": _W_ANALYST, "short": _W_SHORT, "social": _W_SOCIAL,
+               "short_volume": _W_SHORTVOL, "flow": _W_FLOW}
     num = sum(components[k] * weights[k] for k in components)
     den = sum(weights[k] for k in components)
     score = num / den if den else 0.0
@@ -90,9 +117,10 @@ def compute_consensus(ticker) -> dict:
     return {"score": round(score, 3), "label": label, "components": components}
 
 
-def refresh_consensus(ticker) -> None:
+def refresh_consensus(ticker, *, short_vol_pct: float | None = None,
+                      signal_flow: float | None = None) -> None:
     """Compute and persist the consensus score onto the Ticker object."""
-    result = compute_consensus(ticker)
+    result = compute_consensus(ticker, short_vol_pct=short_vol_pct, signal_flow=signal_flow)
     ticker.consensus_score = result["score"]
     ticker.consensus_label = result["label"]
     ticker.consensus_updated_at = datetime.now(timezone.utc)
