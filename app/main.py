@@ -27,6 +27,8 @@ from app.models import (
     Signal,
     Source,
     SourceStatus,
+    Thesis,
+    ThesisEvidence,
     Ticker,
     WatchlistItem,
 )
@@ -1100,6 +1102,91 @@ def investor_lens(payload: dict, db: Session = Depends(get_db)) -> JSONResponse:
     result = lens.analyze(ticker, dossier)
     result["dossier"] = dossier
     return JSONResponse(result)
+
+
+# ---------------------------------------------------------------------- theses
+def _thesis_dict(db: Session, t: Thesis) -> dict:
+    ev = db.execute(
+        select(ThesisEvidence).where(ThesisEvidence.thesis_id == t.id)
+        .order_by(ThesisEvidence.created_at.desc())
+    ).scalars().all()
+    confirms = sum(1 for e in ev if e.stance == "confirms")
+    contradicts = sum(1 for e in ev if e.stance == "contradicts")
+    items = []
+    for e in ev[:20]:
+        sig = db.get(Signal, e.signal_id)
+        items.append({
+            "stance": e.stance, "note": e.note,
+            "summary": sig.summary if sig else "",
+            "direction": sig.direction if sig else "",
+            "url": sig.item.url if sig and sig.item else "",
+            "created_at": e.created_at.isoformat() if e.created_at else None,
+        })
+    total = confirms + contradicts
+    return {
+        "id": t.id, "title": t.title, "direction": t.direction,
+        "tickers": t.tickers, "rationale": t.rationale, "status": t.status,
+        "confirms": confirms, "contradicts": contradicts,
+        "score": round((confirms - contradicts) / total, 2) if total else 0.0,
+        "evidence": items,
+        "updated_at": t.updated_at.isoformat() if t.updated_at else None,
+    }
+
+
+@app.get("/api/theses")
+def list_theses(db: Session = Depends(get_db)) -> JSONResponse:
+    theses = db.execute(select(Thesis).order_by(Thesis.created_at.desc())).scalars().all()
+    return JSONResponse([_thesis_dict(db, t) for t in theses])
+
+
+@app.post("/api/theses")
+def create_thesis(payload: dict, db: Session = Depends(get_db)) -> JSONResponse:
+    title = (payload.get("title") or "").strip()
+    if not title:
+        raise HTTPException(400, "title required")
+    t = Thesis(
+        title=title,
+        direction=(payload.get("direction") or "long").strip().lower(),
+        tickers=",".join(s.strip().upper() for s in (payload.get("tickers") or "").split(",") if s.strip()),
+        rationale=(payload.get("rationale") or "").strip(),
+    )
+    db.add(t)
+    db.commit()
+    return JSONResponse({"id": t.id})
+
+
+@app.patch("/api/theses/{thesis_id}")
+def update_thesis(thesis_id: int, payload: dict, db: Session = Depends(get_db)) -> JSONResponse:
+    t = db.get(Thesis, thesis_id)
+    if t is None:
+        raise HTTPException(404, "thesis not found")
+    for field in ("title", "direction", "rationale", "status"):
+        if field in payload:
+            setattr(t, field, str(payload[field]))
+    if "tickers" in payload:
+        t.tickers = ",".join(s.strip().upper() for s in str(payload["tickers"]).split(",") if s.strip())
+    t.updated_at = datetime.now(timezone.utc)
+    db.commit()
+    return JSONResponse({"ok": True})
+
+
+@app.delete("/api/theses/{thesis_id}")
+def delete_thesis(thesis_id: int, db: Session = Depends(get_db)) -> JSONResponse:
+    t = db.get(Thesis, thesis_id)
+    if t is not None:
+        db.delete(t)
+        db.commit()
+    return JSONResponse({"ok": True})
+
+
+@app.post("/api/theses/evaluate")
+def evaluate_theses_endpoint(db: Session = Depends(get_db)) -> JSONResponse:
+    """Classify recent signals against all active theses (confirm/contradict)."""
+    from app.processing.theses import evaluate_all
+    if not claude.is_configured():
+        raise HTTPException(503, "ANTHROPIC_API_KEY not configured")
+    result = evaluate_all(db)
+    return JSONResponse({"evaluated": result})
 
 
 # ------------------------------------------------------------- daily findings

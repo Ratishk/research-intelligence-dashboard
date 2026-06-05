@@ -7,3 +7,6 @@ research.db
 .venv/
 venv/
 .DS_Store
+
+# codegraph local index
+.codegraph/

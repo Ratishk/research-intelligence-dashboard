@@ -1022,6 +1022,88 @@ document.getElementById("conv-generate")?.addEventListener("click", async () => 
   btn.textContent = "Regenerate"; btn.disabled = false;
 });
 
+// ─── THESES ───────────────────────────────────────────────────────────────────
+function thesisCard(t) {
+  const dir = (t.direction || "long").toLowerCase();
+  const scoreCls = t.score > 0.1 ? "pos" : t.score < -0.1 ? "neg" : "flat";
+  const tickers = (t.tickers || "").split(",").filter(Boolean)
+    .map(x => `<span class="sig-ticker">${esc(x)}</span>`).join("");
+  const ev = (t.evidence || []).map(e => `<div class="th-ev-row">
+      <span class="th-ev-mark ${esc(e.stance)}">${e.stance === "confirms" ? "✓" : "✕"}</span>
+      <span class="th-ev-text">${esc(e.summary)} ${e.note ? `<span class="th-ev-note">— ${esc(e.note)}</span>` : ""}
+        ${e.url ? `<a href="${esc(e.url)}" target="_blank" rel="noopener" class="sig-source-link">↗</a>` : ""}</span>
+    </div>`).join("");
+  return `<div class="thesis-card ${dir} ${esc(t.status)}" data-id="${t.id}">
+    <div class="th-head">
+      <span class="th-dir ${dir}">${dir}</span>
+      <span class="th-title">${esc(t.title)}</span>
+      <span class="th-tickers">${tickers}</span>
+      <span class="th-score ${scoreCls}">${t.score > 0 ? "+" : ""}${t.score}</span>
+    </div>
+    ${t.rationale ? `<div class="th-rationale">${esc(t.rationale)}</div>` : ""}
+    <div class="th-tally">
+      <span class="c">✓ ${t.confirms} confirming</span>
+      <span class="x">✕ ${t.contradicts} contradicting</span>
+      ${t.status !== "active" ? `<span style="color:var(--text-3)">· ${esc(t.status)}</span>` : ""}
+    </div>
+    ${ev ? `<div class="th-evidence">${ev}</div>` : `<div class="th-rationale" style="margin:0">No matching signals yet — hit "Evaluate now" or wait for the 6-hour pass.</div>`}
+    <div class="th-actions">
+      ${t.status === "active"
+        ? `<button data-th-status="confirmed">Mark confirmed</button><button data-th-status="invalidated">Mark invalidated</button>`
+        : `<button data-th-status="active">Reactivate</button>`}
+      <button data-th-del="1">Delete</button>
+    </div>
+  </div>`;
+}
+
+async function renderTheses() {
+  const list = document.getElementById("theses-list");
+  const theses = await api("/api/theses");
+  list.innerHTML = theses.length
+    ? theses.map(thesisCard).join("")
+    : emptyState("⚑", "No theses yet", "Add an investment thesis above — new signals get classified as confirming or contradicting it.");
+  list.querySelectorAll("[data-th-status]").forEach(b =>
+    b.addEventListener("click", async () => {
+      const id = b.closest("[data-id]").dataset.id;
+      await api(`/api/theses/${id}`, { method: "PATCH", headers: {"Content-Type":"application/json"},
+        body: JSON.stringify({ status: b.dataset.thStatus }) });
+      renderTheses();
+    }));
+  list.querySelectorAll("[data-th-del]").forEach(b =>
+    b.addEventListener("click", async () => {
+      const id = b.closest("[data-id]").dataset.id;
+      await api(`/api/theses/${id}`, { method: "DELETE" });
+      renderTheses();
+    }));
+}
+
+document.getElementById("th-add")?.addEventListener("click", async () => {
+  const title = document.getElementById("th-title").value.trim();
+  if (!title) return toast("Thesis title required");
+  await api("/api/theses", { method: "POST", headers: {"Content-Type":"application/json"},
+    body: JSON.stringify({
+      title,
+      direction: document.getElementById("th-direction").value,
+      tickers: document.getElementById("th-tickers").value,
+      rationale: document.getElementById("th-rationale").value,
+    }) });
+  document.getElementById("th-title").value = "";
+  document.getElementById("th-tickers").value = "";
+  document.getElementById("th-rationale").value = "";
+  toast("Thesis added — evaluating against signals…");
+  renderTheses();
+  // Auto-evaluate the new thesis
+  try { await api("/api/theses/evaluate", { method: "POST" }); renderTheses(); } catch (_) {}
+});
+
+document.getElementById("th-eval")?.addEventListener("click", async () => {
+  const b = document.getElementById("th-eval");
+  b.disabled = true; b.textContent = "Evaluating…";
+  try { await api("/api/theses/evaluate", { method: "POST" }); renderTheses(); toast("Theses re-evaluated"); }
+  catch (_) { toast("Evaluation failed"); }
+  b.textContent = "Evaluate now"; b.disabled = false;
+});
+
 // ─── GUIDE ────────────────────────────────────────────────────────────────────
 function renderGuide() {
   const pages = [
@@ -1237,7 +1319,7 @@ async function renderMacro() {
 
 // ─── Command palette (⌘K) ─────────────────────────────────────────────────────
 const CMDK_TABS = [
-  ["conviction","★ Daily Findings"],["home","Home"],["brief","Brief"],["guide","Guide"],
+  ["conviction","★ Daily Findings"],["home","Home"],["brief","Brief"],["theses","Theses"],["guide","Guide"],
   ["smart-money","Smart Money"],["forecasts","Forecasts"],["investor-lens","Investor Lens"],
   ["macro","Macro & Pulse"],["signals","Signals"],["theme-shifts","Theme Shifts"],["trends","Trends"],
   ["feed","Feed"],["watchlists","Watchlists"],["industries","Industries"],["sources","Sources"],
@@ -1307,6 +1389,7 @@ async function renderTab(tab) {
   if (!tab) return;
   try {
     if (tab === "conviction")   await renderConviction();
+    else if (tab === "theses")  await renderTheses();
     else if (tab === "guide")   renderGuide();
     else if (tab === "home")    await renderHome();
     else if (tab === "macro")   await renderMacro();

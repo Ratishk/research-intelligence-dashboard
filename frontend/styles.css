@@ -511,6 +511,40 @@ tr:hover td { background: var(--surface-2); }
 }
 .conv-corrob b { color: var(--text-2); }
 
+/* ─── Theses ────────────────────────────────────────────────────────────────── */
+.thesis-form { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 18px; align-items: center; }
+.thesis-card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-left-width: 3px; border-radius: var(--radius-lg);
+  padding: 14px 16px; margin-bottom: 12px; box-shadow: var(--shadow);
+}
+.thesis-card.long  { border-left-color: var(--bull); }
+.thesis-card.short { border-left-color: var(--bear); }
+.thesis-card.watch { border-left-color: var(--warn); }
+.thesis-card.closed, .thesis-card.invalidated { opacity: .6; }
+.th-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 6px; }
+.th-dir { font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 4px; text-transform: uppercase; }
+.th-dir.long { background: var(--bull-bg); color: var(--bull); }
+.th-dir.short { background: var(--bear-bg); color: var(--bear); }
+.th-dir.watch { background: var(--warn-bg); color: var(--warn); }
+.th-title { font-weight: 600; font-size: 15px; flex: 1; min-width: 180px; }
+.th-tickers { display: flex; gap: 4px; }
+.th-score { font-family: var(--font-num); font-weight: 700; font-size: 14px; }
+.th-score.pos { color: var(--bull); } .th-score.neg { color: var(--bear); } .th-score.flat { color: var(--text-3); }
+.th-rationale { font-size: 13px; color: var(--text-3); margin-bottom: 10px; }
+.th-tally { display: flex; gap: 14px; font-size: 12px; margin-bottom: 8px; }
+.th-tally .c { color: var(--bull); } .th-tally .x { color: var(--bear); }
+.th-evidence { border-top: 1px solid var(--border); padding-top: 8px; }
+.th-ev-row { display: flex; align-items: flex-start; gap: 8px; padding: 4px 0; font-size: 12px; }
+.th-ev-mark { font-weight: 700; flex-shrink: 0; width: 14px; }
+.th-ev-mark.confirms { color: var(--bull); }
+.th-ev-mark.contradicts { color: var(--bear); }
+.th-ev-text { flex: 1; color: var(--text-2); line-height: 1.4; }
+.th-ev-note { color: var(--text-3); }
+.th-actions { display: flex; gap: 6px; margin-top: 8px; }
+.th-actions button { font-size: 11px; padding: 3px 8px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 5px; color: var(--text-3); }
+.th-actions button:hover { color: var(--text); border-color: var(--border-2); }
+
 /* ─── Guide ─────────────────────────────────────────────────────────────────── */
 .guide-wrap { max-width: 860px; }
 .guide-h1 { font-size: 22px; font-weight: 700; margin-bottom: 6px; }

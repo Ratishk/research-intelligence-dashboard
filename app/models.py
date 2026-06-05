@@ -229,6 +229,42 @@ class Digest(Base):
     sent_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
+class Thesis(Base):
+    """A persistent investment thesis tracked against incoming signals."""
+    __tablename__ = "theses"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    title: Mapped[str] = mapped_column(String(300))
+    direction: Mapped[str] = mapped_column(String(20), default="long")  # long|short|watch
+    tickers: Mapped[str] = mapped_column(String(300), default="")  # comma-separated
+    rationale: Mapped[str] = mapped_column(Text, default="")
+    status: Mapped[str] = mapped_column(String(20), default="active")  # active|confirmed|invalidated|closed
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
+
+    evidence: Mapped[list["ThesisEvidence"]] = relationship(
+        back_populates="thesis", cascade="all, delete-orphan"
+    )
+
+
+class ThesisEvidence(Base):
+    """A signal classified as confirming or contradicting a thesis."""
+    __tablename__ = "thesis_evidence"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    thesis_id: Mapped[int] = mapped_column(ForeignKey("theses.id", ondelete="CASCADE"), index=True)
+    signal_id: Mapped[int] = mapped_column(ForeignKey("signals.id", ondelete="CASCADE"))
+    stance: Mapped[str] = mapped_column(String(12))  # confirms|contradicts
+    note: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, index=True)
+
+    thesis: Mapped[Thesis] = relationship(back_populates="evidence")
+
+    __table_args__ = (
+        UniqueConstraint("thesis_id", "signal_id", name="uq_thesis_signal"),
+    )
+
+
 class DailyFinding(Base):
     """A stored daily DeepResearch top-N findings run (one row per day)."""
     __tablename__ = "daily_findings"

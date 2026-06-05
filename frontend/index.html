@@ -25,6 +25,7 @@
         <button data-tab="conviction" class="active"><i>★</i>Daily Findings</button>
         <button data-tab="home"><i>◰</i>Home</button>
         <button data-tab="brief"><i>▤</i>Brief</button>
+        <button data-tab="theses"><i>⚑</i>Theses</button>
         <button data-tab="guide"><i>?</i>Guide</button>
 
         <div class="nav-group">Smart Money</div>
@@ -67,6 +68,28 @@
       <div id="conv-history" class="conv-history"></div>
       <div id="conv-packet" class="conv-packet"></div>
       <div id="conv-cards"></div>
+    </section>
+
+    <!-- THESES -->
+    <section id="view-theses" class="view">
+      <div class="sm-intro">
+        Track persistent investment theses and watch them play out. Every new signal is
+        classified as <b>confirming</b> or <b>contradicting</b> your active calls — so you
+        stop re-deriving the same view daily and start monitoring whether your bets are working.
+      </div>
+      <div class="thesis-form">
+        <input id="th-title" class="filter-input" placeholder="Thesis (e.g. AI capex peaks H2 → short AVGO)" style="flex:1;min-width:240px" />
+        <select id="th-direction" class="filter-select">
+          <option value="long">Long</option>
+          <option value="short">Short</option>
+          <option value="watch">Watch</option>
+        </select>
+        <input id="th-tickers" class="filter-input" placeholder="Tickers (NVDA, AVGO)" style="width:160px" />
+        <input id="th-rationale" class="filter-input" placeholder="Rationale (optional)" style="flex:1;min-width:200px" />
+        <button id="th-add" class="btn-primary">Add thesis</button>
+        <button id="th-eval" class="btn-sm">Evaluate now</button>
+      </div>
+      <div id="theses-list"></div>
     </section>
 
     <!-- GUIDE -->

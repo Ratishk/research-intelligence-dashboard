@@ -69,6 +69,15 @@ def job_daily_findings() -> None:
                     len(result.get("findings", [])), result.get("date"))
 
 
+def job_evaluate_theses() -> None:
+    """Classify new signals against active theses (confirm/contradict)."""
+    from app.processing.theses import evaluate_all
+    with session_scope() as session:
+        result = evaluate_all(session)
+        if result:
+            logger.info("Thesis evaluation: %s", result)
+
+
 def build_scheduler() -> BackgroundScheduler:
     tier = config.tier()
     scheduler = BackgroundScheduler(timezone="UTC")
@@ -81,4 +90,6 @@ def build_scheduler() -> BackgroundScheduler:
     scheduler.add_job(job_shift_alerts, "interval", hours=4, id="shift_alerts")
     # Daily DeepResearch findings at 11:00 UTC (~7am ET, pre-market).
     scheduler.add_job(job_daily_findings, "cron", hour=11, minute=0, id="daily_findings")
+    # Re-evaluate active theses against new signals every 6 hours.
+    scheduler.add_job(job_evaluate_theses, "interval", hours=6, id="theses")
     return scheduler
