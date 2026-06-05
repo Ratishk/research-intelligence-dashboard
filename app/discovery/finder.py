@@ -8,7 +8,8 @@ from __future__ import annotations
 import json
 import logging
 
-from app.llm import grok, perplexity
+from app.config import config
+from app.llm import claude, grok, perplexity
 
 logger = logging.getLogger(__name__)
 
@@ -47,18 +48,27 @@ def _parse_array(raw: str) -> list[dict]:
 
 def find_candidates(industry_name: str, existing_names: list[str]) -> list[dict]:
     prompt = _prompt(industry_name, existing_names)
+    # 1. Perplexity (web-search-backed) if configured.
     if perplexity.is_configured():
         result = perplexity.ask(prompt, model=perplexity.SONAR, max_tokens=2000)
         candidates = _parse_array(result.get("text", "")) if result else []
         if candidates:
             return candidates
-    # Fallback to Grok (non-search general knowledge) if Perplexity is absent.
+    # 2. Claude from general knowledge — reliable default (always configured here).
+    if claude.is_configured():
+        raw = claude.complete(
+            system="You are an expert at finding credible, frontier information sources "
+                   "for investment research. Return only the requested JSON array.",
+            user=prompt, model=config.SONNET_MODEL, max_tokens=2000, cache_system=False,
+        )
+        candidates = _parse_array(raw)
+        if candidates:
+            return candidates
+    # 3. Grok fallback (xAI) if it ever comes back.
     if grok.is_configured():
         raw = grok._chat(
             [{"role": "user", "content": prompt}],
-            model=grok.FAST_MODEL,
-            search=False,
-            max_tokens=2000,
+            model=grok.FAST_MODEL, search=False, max_tokens=2000,
         )
         return _parse_array(raw)
     return []

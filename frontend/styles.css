@@ -614,7 +614,39 @@ tr:hover td { background: var(--surface-2); }
 .subview { display: none; }
 .subview.active { display: block; animation: fade .18s ease; }
 
+/* ─── Composite gauges ──────────────────────────────────────────────────────── */
+.gauge-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+@media (max-width: 800px) { .gauge-grid { grid-template-columns: 1fr; } }
+.gauge-card {
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg);
+  padding: 16px; box-shadow: var(--shadow);
+}
+.gauge-top { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 4px; }
+.gauge-label { font-size: 12px; color: var(--text-3); text-transform: uppercase; letter-spacing: .5px; }
+.gauge-val { font-family: var(--font-num); font-size: 26px; font-weight: 600; }
+.gauge-val.pos { color: var(--bull); } .gauge-val.neg { color: var(--bear); } .gauge-val.mid { color: var(--text-2); }
+.gauge-sub { font-size: 12px; color: var(--text-3); margin-bottom: 10px; }
+.gauge-track {
+  position: relative; height: 8px; border-radius: 5px; overflow: visible;
+  background: linear-gradient(90deg, var(--bear) 0%, var(--surface-3) 50%, var(--bull) 100%);
+  opacity: .85;
+}
+.gauge-mark {
+  position: absolute; top: -3px; width: 3px; height: 14px; border-radius: 2px;
+  background: var(--text); box-shadow: 0 0 0 2px var(--surface);
+}
+.gauge-zero { position: absolute; top: -2px; left: 50%; width: 1px; height: 12px; background: var(--border-2); }
+
 /* ─── Funds (13F) ───────────────────────────────────────────────────────────── */
+.fund-card.clickable { cursor: pointer; }
+.fund-detail { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); }
+.fund-detail-title { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .5px; color: var(--text-3); margin: 8px 0 6px; }
+.fund-row { display: flex; align-items: center; gap: 8px; padding: 3px 0; font-size: 12px; }
+.fund-row-name { flex: 1; color: var(--text-2); }
+.fund-row-val { font-family: var(--font-num); color: var(--text-3); }
+.fund-tag { font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 4px; }
+.fund-tag.new { background: var(--bull-bg); color: var(--bull); }
+.fund-tag.exit { background: var(--bear-bg); color: var(--bear); }
 .fund-card {
   background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg);
   padding: 14px 16px; margin-bottom: 10px; box-shadow: var(--shadow);

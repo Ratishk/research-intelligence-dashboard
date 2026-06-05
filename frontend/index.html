@@ -36,7 +36,7 @@
         <button data-tab="macro"><i>◷</i>Macro &amp; Pulse</button>
         <button data-tab="signals"><i>↯</i>Signals</button>
         <button data-tab="theme-shifts"><i>≈</i>Theme Shifts</button>
-        <button data-tab="trends"><i>📈</i>Trends</button>
+        <button data-tab="trends"><i>▦</i>Trends</button>
 
         <div class="nav-group">Data</div>
         <button data-tab="feed"><i>≡</i>Feed</button>
@@ -377,7 +377,12 @@
 
     <!-- TRENDS -->
     <section id="view-trends" class="view">
-      <div class="chart-wrap"><canvas id="chart-directions"></canvas></div>
+      <div class="section-header">
+        <span class="section-label">Composite indices</span>
+        <span class="section-meta">Weighted scores · −100 risk-off/bearish … +100 risk-on/bullish</span>
+      </div>
+      <div id="composite-gauges" class="gauge-grid"></div>
+      <div class="chart-wrap" style="margin-top:16px"><canvas id="chart-directions"></canvas></div>
       <div class="chart-wrap"><canvas id="chart-topics"></canvas></div>
     </section>
 

@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import logging
 import time
+from concurrent.futures import ThreadPoolExecutor
 
 import requests
 
@@ -26,12 +27,25 @@ _HEADERS = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)"}
 _TIMEOUT = 6  # fail fast on throttled series rather than blocking the panel
 _TREND_LOOKBACK = 30  # rows back for the trend reference
 
+# (series id, label, group). Grouped for a richer macro dashboard.
 _SERIES = [
-    ("T10Y2Y", "10Y-2Y Spread"),
-    ("CPIAUCSL", "CPI"),
-    ("UNRATE", "Unemployment"),
-    ("DFF", "Fed Funds"),
-    ("VIXCLS", "VIX"),
+    # Rates & curve
+    ("T10Y2Y", "10Y-2Y Spread", "Rates & Curve"),
+    ("T10Y3M", "10Y-3M Spread", "Rates & Curve"),
+    ("DGS10", "10Y Treasury", "Rates & Curve"),
+    ("DFF", "Fed Funds", "Rates & Curve"),
+    # Inflation
+    ("CPIAUCSL", "CPI", "Inflation"),
+    ("T5YIE", "5Y Inflation Expect.", "Inflation"),
+    ("DCOILWTICO", "WTI Crude", "Inflation"),
+    # Growth & jobs
+    ("UNRATE", "Unemployment", "Growth & Jobs"),
+    ("ICSA", "Initial Jobless Claims", "Growth & Jobs"),
+    ("INDPRO", "Industrial Production", "Growth & Jobs"),
+    # Risk & credit
+    ("VIXCLS", "VIX", "Risk & Credit"),
+    ("BAMLH0A0HYM2", "High-Yield Spread", "Risk & Credit"),
+    ("DTWEXBGS", "Dollar Index", "Risk & Credit"),
 ]
 
 _CACHE_TTL = 3600  # one hour
@@ -79,15 +93,60 @@ def fetch_series(series: str) -> dict | None:
     return {"value": value, "prev": prev}
 
 
-def _interpret(series: str, value: float) -> str:
+def _interpret(series: str, value: float, change: float) -> str:
     """One-line read on a single indicator."""
-    if series == "T10Y2Y":
+    if series in ("T10Y2Y", "T10Y3M"):
         return "inverted — recession warning" if value < 0 else "normal (positive)"
     if series == "VIXCLS":
         if value > 25:
             return "elevated — fear"
         return "low — calm" if value < 15 else "moderate"
-    return "see trend"
+    if series == "BAMLH0A0HYM2":
+        return "wide — credit stress" if value > 5 else "tight — risk appetite"
+    if series == "ICSA":
+        return "rising — labor softening" if change > 0 else "falling — labor firm"
+    if series == "UNRATE":
+        return "rising" if change > 0 else "falling/stable"
+    if series == "T5YIE":
+        return "elevated" if value > 2.5 else "anchored"
+    return ("rising" if change > 0 else "falling") if change else "flat"
+
+
+def _outlook_score(by_id: dict[str, dict]) -> dict:
+    """Weighted macro-outlook composite in [-100, +100] (risk-off .. risk-on).
+
+    Each present component contributes its weight × its risk sign; we normalize
+    by the weights actually available so a throttled series doesn't skew it.
+    """
+    comps = []  # (label, weight, signed value in [-1, 1])
+
+    def curve(v): return max(-1.0, min(1.0, v / 1.5))          # +1.5% spread = max risk-on
+    def vix(v):   return max(-1.0, min(1.0, (18 - v) / 12))     # <18 good, >30 bad
+    def hy(v):    return max(-1.0, min(1.0, (4.5 - v) / 3))     # tight spread = risk-on
+    def claims(c):return max(-1.0, min(1.0, -c / 50000))         # rising claims = risk-off
+    def unemp(c): return max(-1.0, min(1.0, -c * 2))            # rising unemp = risk-off
+    def fed(c):   return max(-1.0, min(1.0, -c))               # hikes = risk-off
+
+    spec = [
+        ("T10Y2Y", 0.22, curve), ("T10Y3M", 0.10, curve),
+        ("VIXCLS", 0.20, vix), ("BAMLH0A0HYM2", 0.18, hy),
+        ("ICSA", 0.12, claims), ("UNRATE", 0.10, unemp), ("DFF", 0.08, fed),
+    ]
+    num = den = 0.0
+    for sid, w, fn in spec:
+        d = by_id.get(sid)
+        if not d:
+            continue
+        # curve/vix/hy use level; claims/unemp/fed use change.
+        x = fn(d["value"]) if sid in ("T10Y2Y", "T10Y3M", "VIXCLS", "BAMLH0A0HYM2") else fn(d["change"])
+        comps.append({"id": sid, "label": d["label"], "contribution": round(x * w, 3)})
+        num += x * w
+        den += w
+    score = round((num / den) * 100, 1) if den else 0.0
+    if score >= 30:    label = "risk-on"
+    elif score <= -30: label = "risk-off"
+    else:              label = "neutral"
+    return {"score": score, "label": label, "components": comps}
 
 
 def get_macro() -> dict:
@@ -106,39 +165,35 @@ def get_macro() -> dict:
     if _cache is not None and (time.monotonic() - _cache_at) < _CACHE_TTL:
         return _cache
 
+    # Fetch all series concurrently — sequential would be 13×timeout on a
+    # throttled host; parallel keeps the whole call near a single timeout.
+    with ThreadPoolExecutor(max_workers=13) as pool:
+        fetched = list(pool.map(lambda s: (s, fetch_series(s[0])), _SERIES))
+
     indicators = []
-    spread = None
-    vix = None
-    for series, label in _SERIES:
-        data = fetch_series(series)
+    by_id: dict[str, dict] = {}
+    for (series, label, group), data in fetched:
         if not data:
             continue
         value, prev = data["value"], data["prev"]
         change = round(value - prev, 2)
-        indicators.append(
-            {
-                "id": series,
-                "label": label,
-                "value": round(value, 2),
-                "prev": round(prev, 2),
-                "change": change,
-                "interpretation": _interpret(series, value),
-            }
-        )
-        if series == "T10Y2Y":
-            spread = value
-        elif series == "VIXCLS":
-            vix = value
+        ind = {
+            "id": series, "label": label, "group": group,
+            "value": round(value, 2), "prev": round(prev, 2), "change": change,
+            "interpretation": _interpret(series, value, change),
+        }
+        indicators.append(ind)
+        by_id[series] = ind
 
-    # Regime: inverted curve or a fearful VIX tilts risk-off; a healthy
-    # positive spread with calm VIX is risk-on; otherwise neutral.
-    if (spread is not None and spread < 0) or (vix is not None and vix > 25):
-        regime = "risk-off"
-    elif spread is not None and spread > 0 and (vix is None or vix < 20):
-        regime = "risk-on"
-    else:
-        regime = "neutral"
+    outlook = _outlook_score(by_id)
+    # Backwards-compatible coarse regime label derived from the composite.
+    regime = outlook["label"]
 
-    result = {"indicators": indicators, "regime": regime, "updated": None}
+    result = {
+        "indicators": indicators,
+        "outlook": outlook,           # weighted composite score + components
+        "regime": regime,
+        "updated": None,
+    }
     _cache, _cache_at = result, time.monotonic()
     return result

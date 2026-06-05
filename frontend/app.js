@@ -822,6 +822,8 @@ async function loadFunds() {
     const funds = await api("/api/funds");
     el.innerHTML = funds.length ? funds.map(fundCard).join("")
       : emptyState("◆", "13F data unavailable", "EDGAR may be throttling this host; try again shortly.");
+    el.querySelectorAll("[data-cik]").forEach(card =>
+      card.addEventListener("click", () => toggleFundDetail(card)));
     _fundsLoaded = true;
   } catch (e) {
     el.innerHTML = emptyState("⚠️", "Failed to load funds", "EDGAR throttled — retry shortly.");
@@ -837,14 +839,45 @@ function fundCard(f) {
   if (c.added)  chg.push(`<span class="added">▲${c.added} added</span>`);
   if (c.trimmed)chg.push(`<span class="trim">▼${c.trimmed} trimmed</span>`);
   if (c.exited) chg.push(`<span class="exit">✕${c.exited} exited</span>`);
-  return `<div class="fund-card">
+  return `<div class="fund-card clickable" data-cik="${f.cik}">
     <div class="fund-head">
       <span class="fund-name">${esc(f.name)}</span>
-      ${f.filing_date ? `<span class="fund-date">13F ${esc(f.filing_date)}</span>` : ""}
+      ${f.filing_date ? `<span class="fund-date">13F ${esc(f.filing_date)} · click for full holdings</span>` : ""}
     </div>
     <div class="fund-holdings">${holds || '<span class="mini-sub">holdings unavailable</span>'}</div>
     ${chg.length ? `<div class="fund-chg">${chg.join(" · ")}</div>` : ""}
+    <div class="fund-detail" style="display:none"></div>
   </div>`;
+}
+
+function chgList(label, items, cls) {
+  if (!items || !items.length) return "";
+  const rows = items.slice(0, 12).map(i =>
+    `<div class="fund-row"><span class="fund-row-name">${esc(i.issuer || i)}</span>
+     ${i.value_usd ? `<span class="fund-row-val">$${(i.value_usd/1e9).toFixed(2)}B</span>` : ""}</div>`).join("");
+  return `<div class="fund-detail-title"><span class="fund-tag ${cls}">${label}</span> ${items.length}</div>${rows}`;
+}
+
+async function toggleFundDetail(card) {
+  const box = card.querySelector(".fund-detail");
+  if (box.dataset.open === "1") { box.style.display = "none"; box.dataset.open = "0"; return; }
+  box.style.display = "block"; box.dataset.open = "1";
+  if (box.dataset.loaded) return;
+  box.innerHTML = `<div class="mini-sub" style="padding:6px 0">Loading full 13F…</div>`;
+  try {
+    const d = await api(`/api/funds/${card.dataset.cik}`);
+    const h = (d.holdings?.holdings || []).map(x =>
+      `<div class="fund-row"><span class="fund-row-name">${esc(x.issuer)}</span>
+       <span class="fund-row-val">$${(x.value_usd/1e9).toFixed(2)}B · ${(x.shares/1e6).toFixed(1)}M sh</span></div>`).join("");
+    const ch = d.changes || {};
+    box.innerHTML =
+      `<div class="fund-detail-title">Top holdings (current portfolio)</div>${h || '<div class="mini-sub">unavailable</div>'}` +
+      chgList("NEW", ch.new, "new") +
+      chgList("EXITED", ch.exited, "exit");
+    box.dataset.loaded = "1";
+  } catch (_) {
+    box.innerHTML = `<div class="mini-sub" style="padding:6px 0">Couldn't load detail (EDGAR throttled).</div>`;
+  }
 }
 
 async function renderSmartMoney() {
@@ -1038,6 +1071,39 @@ function renderGuide() {
       <b>QuantMind</b>'s knowledge-extraction → retrieval pipeline, run on Claude.
     </div></div>
   </div>`;
+}
+
+// ─── Composite gauges (Trends tab) ────────────────────────────────────────────
+function gaugeCard(label, c, sub) {
+  const score = c.score ?? 0;
+  const pct = Math.max(0, Math.min(100, (score + 100) / 2));
+  const cls = score > 5 ? "pos" : score < -5 ? "neg" : "mid";
+  return `<div class="gauge-card">
+    <div class="gauge-top">
+      <span class="gauge-label">${esc(label)}</span>
+      <span class="gauge-val ${cls}">${score > 0 ? "+" : ""}${score}</span>
+    </div>
+    <div class="gauge-sub">${esc(c.label || "")}${sub ? " · " + sub : ""}</div>
+    <div class="gauge-track">
+      <div class="gauge-zero"></div>
+      <div class="gauge-mark" style="left:calc(${pct}% - 1.5px)"></div>
+    </div>
+  </div>`;
+}
+
+async function renderComposites() {
+  const el = document.getElementById("composite-gauges");
+  if (!el) return;
+  try {
+    const d = await api("/api/composites");
+    const mc = d.market_consensus, sm = d.signal_momentum;
+    el.innerHTML =
+      gaugeCard("Macro Outlook", d.macro_outlook, "yield curve · VIX · credit · jobs") +
+      gaugeCard("Market Consensus", mc, mc.n ? `${mc.bull}▲ ${mc.bear}▼ of ${mc.n}` : "awaiting price data") +
+      gaugeCard("Signal Momentum", sm, sm.n ? `${sm.bull}▲ ${sm.bear}▼ · ${sm.n} signals/7d` : "");
+  } catch (_) {
+    el.innerHTML = `<div class="mini-sub">Composites unavailable.</div>`;
+  }
 }
 
 // ─── INVESTOR LENS ────────────────────────────────────────────────────────────
@@ -1240,7 +1306,7 @@ async function renderTab(tab) {
     else if (tab === "signals") await renderSignals();
     else if (tab === "watchlists") await renderWatchlists();
     else if (tab === "theme-shifts") await renderThemeShifts();
-    else if (tab === "trends")  await window.renderTrends();
+    else if (tab === "trends")  { await renderComposites(); await window.renderTrends(); }
     else if (tab === "industries") await renderIndustries();
     else if (tab === "sources") await renderSources();
   } catch (e) {

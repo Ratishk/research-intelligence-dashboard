@@ -747,6 +747,58 @@ def get_macro_endpoint() -> JSONResponse:
     return JSONResponse(get_macro())
 
 
+@app.get("/api/composites")
+def get_composites(db: Session = Depends(get_db)) -> JSONResponse:
+    """Three weighted composite indices in [-100, +100] for the analytics view:
+    Macro Outlook, Market Consensus, and Signal Momentum."""
+    from app.processing.macro import get_macro
+
+    # 1. Macro Outlook — weighted FRED composite.
+    macro = get_macro()
+    macro_outlook = macro.get("outlook", {"score": 0, "label": "neutral", "components": []})
+
+    # 2. Market Consensus — average blended consensus across watchlist tickers.
+    syms = {r[0] for r in db.execute(select(WatchlistItem.ticker_symbol)).all()}
+    tks = db.execute(
+        select(Ticker).where(Ticker.symbol.in_(syms), Ticker.consensus_score.isnot(None))
+    ).scalars().all() if syms else []
+    if tks:
+        avg = sum(t.consensus_score for t in tks) / len(tks)
+        consensus = {
+            "score": round(avg * 100, 1),
+            "label": "bullish" if avg > 0.15 else "bearish" if avg < -0.15 else "mixed",
+            "n": len(tks),
+            "bull": sum(1 for t in tks if (t.consensus_score or 0) > 0.15),
+            "bear": sum(1 for t in tks if (t.consensus_score or 0) < -0.15),
+        }
+    else:
+        consensus = {"score": 0, "label": "no data", "n": 0, "bull": 0, "bear": 0}
+
+    # 3. Signal Momentum — confidence-weighted net direction over the last 7 days.
+    cutoff = datetime.now(timezone.utc) - timedelta(days=7)
+    sigs = db.execute(select(Signal).where(Signal.created_at >= cutoff)).scalars().all()
+    num = den = 0.0
+    bull = bear = 0
+    for s in sigs:
+        w = s.confidence or 0.5
+        if s.direction == "bullish":
+            num += w; bull += 1
+        elif s.direction == "bearish":
+            num -= w; bear += 1
+        den += w
+    momentum = {
+        "score": round((num / den) * 100, 1) if den else 0.0,
+        "label": "bullish" if num > 0 else "bearish" if num < 0 else "flat",
+        "n": len(sigs), "bull": bull, "bear": bear,
+    }
+
+    return JSONResponse({
+        "macro_outlook": macro_outlook,
+        "market_consensus": consensus,
+        "signal_momentum": momentum,
+    })
+
+
 @app.get("/api/pulse")
 def get_pulse(db: Session = Depends(get_db)) -> JSONResponse:
     """Per-watchlist-ticker alt-data: Wikipedia attention + GDELT news tone."""
