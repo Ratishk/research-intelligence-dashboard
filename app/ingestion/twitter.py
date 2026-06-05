@@ -11,7 +11,7 @@ tier). Batching keeps call volume low to respect rate limits.
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 
 import requests
 
@@ -50,8 +50,12 @@ def _batch_handles(handles: list[str]) -> list[list[str]]:
     return batches
 
 
-def _search(handles: list[str]) -> tuple[list[dict], dict[str, str]]:
-    """Return (tweets, author_id->username) for a batch of handles."""
+def _search(handles: list[str], start_time: str | None = None) -> tuple[list[dict], dict[str, str]]:
+    """Return (tweets, author_id->username) for a batch of handles.
+
+    ``start_time`` (ISO8601) limits the result to tweets after the last poll —
+    critical on pay-per-read pricing, since we only pay for NEW tweets.
+    """
     query = "(" + " OR ".join(f"from:{h}" for h in handles) + ") -is:retweet -is:reply"
     params = {
         "query": query,
@@ -60,6 +64,8 @@ def _search(handles: list[str]) -> tuple[list[dict], dict[str, str]]:
         "expansions": "author_id",
         "user.fields": "username,name",
     }
+    if start_time:
+        params["start_time"] = start_time
     try:
         resp = requests.get(_ENDPOINT, headers=_headers(), params=params, timeout=_TIMEOUT)
         if resp.status_code == 429:
@@ -92,6 +98,26 @@ def ingest_all(session) -> int:
     if not sources:
         return 0
 
+    # Cost control: X is pay-per-read, so poll at most x_polls_per_day. Use the
+    # newest source.last_crawled as the last-poll marker; skip if too recent,
+    # and pass it as start_time so we only read (and pay for) NEW tweets.
+    from datetime import timedelta
+
+    from app.config import config
+    polls = max(1, config.tier().x_polls_per_day)
+    min_gap = timedelta(hours=24 / polls)
+    now = datetime.now(timezone.utc)
+    last = max((s.last_crawled for s in sources if s.last_crawled), default=None)
+    if last is not None:
+        last_aware = last if last.tzinfo else last.replace(tzinfo=timezone.utc)
+        if now - last_aware < min_gap:
+            logger.info("X poll skipped — within %s of last poll (cost control)", min_gap)
+            return 0
+        start_time = last_aware.isoformat().replace("+00:00", "Z")
+    else:
+        # First ever poll: only look back 2 days to bound the initial read cost.
+        start_time = (now - timedelta(days=2)).isoformat().replace("+00:00", "Z")
+
     # Map lowercased handle -> source for attribution.
     by_handle: dict[str, Source] = {}
     for s in sources:
@@ -103,7 +129,7 @@ def ingest_all(session) -> int:
 
     added = 0
     for batch in _batch_handles(list(by_handle.keys())):
-        tweets, users = _search(batch)
+        tweets, users = _search(batch, start_time=start_time)
         if not tweets:
             continue
         for tw in tweets:
@@ -132,5 +158,9 @@ def ingest_all(session) -> int:
             )
             if item is not None:
                 added += 1
+    # Stamp every X source as polled now, so the throttle holds even when no
+    # new tweets came back (upsert_item only stamps sources that got an item).
+    for s in sources:
+        s.last_crawled = now
     logger.info("X/Twitter ingested %d new tweets", added)
     return added

@@ -33,15 +33,30 @@ class TierSettings:
     discovery_interval_days: int
     # Max industries actively ingested (None = all).
     max_active_industries: int | None
+    # Hard ceiling on items sent to the LLM classifier per day (cost cap).
+    classify_cap_per_day: int = 100000
+    # When True, items mentioning no tracked entity skip the LLM entirely (free).
+    prefilter: bool = False
 
 
 _TIERS: dict[str, TierSettings] = {
+    # ~$25/mo target: heuristic pre-filter, hard daily classify cap, 1 X poll/day.
+    "budget": TierSettings(
+        sonnet_relevance_threshold=0.78,
+        x_polls_per_day=1,
+        x_accounts_per_query=15,
+        discovery_interval_days=30,
+        max_active_industries=6,
+        classify_cap_per_day=250,
+        prefilter=True,
+    ),
     "lean": TierSettings(
         sonnet_relevance_threshold=0.7,
         x_polls_per_day=1,
         x_accounts_per_query=10,
         discovery_interval_days=14,
         max_active_industries=8,
+        classify_cap_per_day=800,
     ),
     "standard": TierSettings(
         sonnet_relevance_threshold=0.5,

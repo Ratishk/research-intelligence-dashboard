@@ -48,9 +48,49 @@ _SIGNAL_SYSTEM = (
 _VALID_TYPES = {t.value for t in SignalType}
 _VALID_DIRECTIONS = {d.value for d in Direction}
 
+# Cached lowercase set of tracked entities for the free heuristic pre-filter.
+_terms_cache: tuple[float, set[str]] | None = None
+_TERMS_TTL = 1800  # 30 min
+
+# Always-relevant macro/market keywords so important non-ticker news survives
+# the pre-filter even when it names no watched company.
+_KEYWORDS = {
+    "fed", "fomc", "inflation", "cpi", "rate cut", "rate hike", "recession",
+    "tariff", "earnings", "ipo", "acquisition", "merger", "bankruptcy",
+    "semiconductor", "chip", "ai ", "artificial intelligence", "euv",
+    "lithography", "gpu", "data center", "nuclear", "battery", "biotech",
+    "fda", "clinical", "defense", "quantum",
+}
+
+
+def _tracked_terms(session) -> set[str]:
+    """Lowercase tickers + company names + keywords we care about."""
+    global _terms_cache
+    import time
+    if _terms_cache and (time.monotonic() - _terms_cache[0]) < _TERMS_TTL:
+        return _terms_cache[1]
+    from app.models import Ticker, WatchlistItem
+    terms: set[str] = set(_KEYWORDS)
+    for row in session.execute(select(WatchlistItem.ticker_symbol)).all():
+        if row[0]:
+            terms.add(row[0].lower())
+    for t in session.execute(select(Ticker)).scalars().all():
+        if t.name:
+            # first token of the company name (e.g. "NVIDIA" from "NVIDIA Corp")
+            terms.add(t.name.split()[0].lower())
+    _terms_cache = (time.monotonic(), terms)
+    return terms
+
+
+def _mentions_tracked(item: Item, terms: set[str]) -> bool:
+    blob = f"{item.title} {item.content[:1500]}".lower()
+    return any(term in blob for term in terms)
+
 
 def score_relevance(item: Item) -> float:
-    text = f"Title: {item.title}\n\n{item.content[:4000]}"
+    # Shorter input than before (title + 600 chars) — barely affects the
+    # relevance judgment but cuts Haiku token cost ~5×.
+    text = f"Title: {item.title}\n\n{item.content[:600]}"
     raw = claude.complete(
         system=_RELEVANCE_SYSTEM, user=text, model=config.HAIKU_MODEL, max_tokens=64
     )
@@ -109,9 +149,23 @@ def classify_item(session, item: Item) -> Signal | None:
     return signal
 
 
+# Daily LLM-classification counter for the cost cap (resets each UTC day).
+_classify_count: dict[str, int] = {"date": "", "n": 0}
+
+
+def _llm_budget_left(cap: int) -> int:
+    from datetime import datetime, timezone
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    if _classify_count["date"] != today:
+        _classify_count.update(date=today, n=0)
+    return max(0, cap - _classify_count["n"])
+
+
 def run_classification(session, batch_limit: int = 200) -> dict[str, int]:
-    """Process unprocessed items: Haiku filter, then Sonnet on those that pass."""
-    threshold = config.tier().sonnet_relevance_threshold
+    """Process unprocessed items: heuristic pre-filter (free) → Haiku relevance →
+    Sonnet signal extraction, bounded by a daily LLM-call cap to control cost."""
+    tier = config.tier()
+    threshold = tier.sonnet_relevance_threshold
     items = (
         session.execute(
             select(Item).where(Item.processed.is_(False)).limit(batch_limit)
@@ -119,16 +173,28 @@ def run_classification(session, batch_limit: int = 200) -> dict[str, int]:
         .scalars()
         .all()
     )
-    stats = {"scored": 0, "classified": 0, "signals": 0}
+    terms = _tracked_terms(session) if tier.prefilter else None
+    budget = _llm_budget_left(tier.classify_cap_per_day)
+    stats = {"scored": 0, "classified": 0, "signals": 0, "skipped": 0}
     for item in items:
+        # Free heuristic pre-filter: items naming no tracked entity never hit the LLM.
+        if terms is not None and not _mentions_tracked(item, terms):
+            item.relevance = 0.0
+            item.processed = True
+            stats["skipped"] += 1
+            continue
+        if budget <= 0:
+            break  # daily cost cap reached — leave the rest for the next run/day
         relevance = score_relevance(item)
         item.relevance = relevance
         item.processed = True
+        budget -= 1
+        _classify_count["n"] += 1
         stats["scored"] += 1
         if relevance >= threshold:
             stats["classified"] += 1
             signal = classify_item(session, item)
             if signal is not None:
                 stats["signals"] += 1
-    logger.info("Classification: %s (threshold=%.2f)", stats, threshold)
+    logger.info("Classification: %s (threshold=%.2f, tier=%s)", stats, threshold, config.COST_TIER)
     return stats
