@@ -905,6 +905,17 @@ tr:hover td { background: var(--surface-2); }
 .lens-verdict.neutral { background: var(--surface-3); color: var(--text-2); }
 .lens-rationale { font-size: 13px; color: var(--text-2); line-height: 1.55; }
 
+/* Investor Lens — SEC fundamentals strip */
+.lens-fund { background: var(--surface-2); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; margin: 4px 0 16px; }
+.lens-fund-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 10px 18px; }
+.lens-stat { display: flex; flex-direction: column; gap: 2px; }
+.lens-stat-l { font-size: 10.5px; text-transform: uppercase; letter-spacing: .4px; color: var(--text-3); }
+.lens-stat-v { font-size: 15px; font-weight: 650; color: var(--text-1); font-family: var(--font-num, inherit); }
+.lens-stat-v.bull { color: var(--bull); }
+.lens-stat-v.bear { color: var(--bear); }
+.lens-fresh { margin-top: 11px; padding-top: 10px; border-top: 1px solid var(--border); font-size: 11px; color: var(--text-3); }
+.lens-fresh-warn { color: var(--bear); }
+
 /* ─── Macro & Pulse ─────────────────────────────────────────────────────────── */
 .macro-regime {
   display: flex; align-items: center; gap: 16px;
@@ -1043,7 +1054,21 @@ tr:hover td { background: var(--surface-2); }
 .ask-tbl { border-collapse: collapse; width: 100%; margin: 8px 0 12px; font-size: 13px; }
 .ask-tbl th, .ask-tbl td { border: 1px solid var(--border); padding: 6px 10px; text-align: left; }
 .ask-tbl th { background: var(--surface-2); color: var(--text-2); font-weight: 600; }
+
+/* Portfolio holdings table */
+.pf-tbl td { vertical-align: middle; }
+.pf-tbl .pf-co { color: var(--text-2); max-width: 220px; }
+.pf-tbl .pf-num { font-family: var(--font-num); white-space: nowrap; }
+.pf-tbl .pf-num b.up { color: var(--bull); }
+.pf-weight { display: flex; flex-direction: column; gap: 3px; min-width: 70px; }
+.pf-weight-bar { height: 3px; background: var(--surface-3); border-radius: 2px; overflow: hidden; }
+.pf-weight-bar > div { height: 100%; background: var(--accent); }
+.pf-sigcount { margin-left: 6px; font-size: 11px; color: var(--text-3); }
 .ask-src-head { font-size: 11px; text-transform: uppercase; letter-spacing: .6px; color: var(--text-3); margin: 18px 0 8px; }
+.ask-used { display: flex; flex-wrap: wrap; gap: 6px; margin: 14px 0 4px; }
+.ask-used-chip { font-size: 10.5px; padding: 3px 9px; border-radius: 999px; background: var(--surface-3); color: var(--text-2); border: 1px solid var(--border); }
+.ask-doc { display: block; font-size: 12.5px; color: var(--accent); text-decoration: none; padding: 4px 0; }
+.ask-doc:hover { text-decoration: underline; }
 .ask-src {
   display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
   padding: 8px 12px; margin-bottom: 6px; background: var(--surface); border: 1px solid var(--border);
@@ -1053,3 +1078,69 @@ tr:hover td { background: var(--surface-2); }
 .ask-src.bearish { border-left-color: var(--bear); }
 .ask-src-sum { color: var(--text); flex: 1; min-width: 200px; }
 .ask-src-meta { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+
+/* ─── Fund consensus (13F overlap) ──────────────────────────────────────── */
+.cons-card {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+  padding: 12px 14px; margin-bottom: 8px; cursor: pointer; transition: border-color .15s;
+}
+.cons-card:hover { border-color: var(--border-2); }
+.cons-head { display: flex; align-items: center; gap: 12px; }
+.cons-count {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  min-width: 46px; height: 40px; border-radius: 8px; flex-shrink: 0;
+  background: var(--bull-bg); color: var(--bull);
+  font-family: var(--font-num); font-size: 1.15rem; font-weight: 700; line-height: 1;
+}
+.cons-count small { font-size: .52rem; letter-spacing: .08em; text-transform: uppercase; color: var(--text-3); margin-top: 3px; font-weight: 500; }
+.cons-name { flex: 1; font-weight: 600; color: var(--text); font-size: .95rem; }
+.cons-total { font-family: var(--font-num); color: var(--text-2); font-size: .85rem; }
+.cons-bar { height: 4px; background: var(--surface-3); border-radius: 3px; overflow: hidden; margin: 9px 0 0; }
+.cons-bar span { display: block; height: 100%; background: linear-gradient(90deg, var(--bull), var(--accent)); }
+.cons-holders { display: none; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); }
+.cons-card.open .cons-holders { display: block; }
+
+/* ─── Insider cluster buys (OpenInsider) ────────────────────────────────── */
+.iclus-card {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+  border-left: 3px solid var(--bull);
+  padding: 12px 14px; margin-bottom: 8px; transition: border-color .15s;
+}
+.iclus-card:hover { border-color: var(--border-2); }
+.iclus-head { display: flex; align-items: center; gap: 12px; }
+.iclus-badge {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  min-width: 46px; height: 40px; border-radius: 8px; flex-shrink: 0;
+  background: var(--bull-bg); color: var(--bull);
+  font-family: var(--font-num); font-size: 1.15rem; font-weight: 700; line-height: 1;
+}
+.iclus-badge small { font-size: .5rem; letter-spacing: .07em; text-transform: uppercase; color: var(--text-3); margin-top: 3px; font-weight: 500; }
+.iclus-ticker { font-family: var(--font-num); font-weight: 700; color: var(--text); font-size: 1rem; flex-shrink: 0; }
+.iclus-co { flex: 1; color: var(--text-2); font-size: .9rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.iclus-val { font-family: var(--font-num); color: var(--bull); font-weight: 600; font-size: .9rem; flex-shrink: 0; }
+.iclus-meta { margin-top: 7px; font-size: .72rem; color: var(--text-3); }
+
+/* ─── Cross-signal Agreement view ───────────────────────────────────────── */
+.agree-card {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+  padding: 12px 14px; margin-bottom: 8px;
+}
+.agree-card.edge { border-color: rgba(245,158,11,.4); background: linear-gradient(180deg, rgba(245,158,11,.05), var(--surface)); }
+.agree-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.agree-count {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  min-width: 44px; height: 40px; border-radius: 8px; flex-shrink: 0;
+  background: var(--bull-bg); color: var(--bull);
+  font-family: var(--font-num); font-size: 1.2rem; font-weight: 700; line-height: 1;
+}
+.agree-count small { font-size: .5rem; letter-spacing: .08em; text-transform: uppercase; color: var(--text-3); margin-top: 3px; font-weight: 500; }
+.agree-tkr { font-family: var(--font-num); font-weight: 700; color: var(--accent-2); font-size: 1rem; cursor: pointer; }
+.agree-tkr:hover { text-decoration: underline; }
+.agree-co { color: var(--text-2); font-size: .85rem; flex: 1; }
+.agree-crowd { font-family: var(--font-num); font-size: .72rem; color: var(--text-3); }
+.agree-edge { display: inline-block; margin: 8px 0 2px; font-size: .72rem; font-weight: 600; color: var(--warn); }
+.agree-srcs { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 9px; padding-top: 9px; border-top: 1px solid var(--border); }
+.agree-src { display: flex; align-items: center; gap: 6px; font-size: .8rem; color: var(--text-2); }
+.agree-src-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--bull); flex-shrink: 0; }
+.agree-src b { color: var(--text); font-weight: 600; }
+.agree-src-d { color: var(--text-3); font-family: var(--font-num); font-size: .72rem; }

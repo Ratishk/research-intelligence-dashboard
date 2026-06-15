@@ -28,10 +28,15 @@ degrades to empty/partial results and never raises.
 """
 from __future__ import annotations
 
+import csv as _csv
+import datetime as _dt
 import logging
+import os as _os
+import threading
 import time
 import xml.etree.ElementTree as ET
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import requests
 
@@ -42,9 +47,17 @@ _TIMEOUT = 20
 _SUBMISSIONS = "https://data.sec.gov/submissions/CIK{cik:010d}.json"
 _ARCHIVE = "https://www.sec.gov/Archives/edgar/data/{cik}/{acc}/"
 
-# Verified 13F-HR filers (each CIK confirmed to resolve to a 13F filer via the
-# submissions API on 2026-06).
-FAMOUS_FUNDS: dict[int, str] = {
+# Path to the hedge-fund universe CSV (cik,name,featured). Built from the SEC
+# EDGAR quarterly form index (every entity actually filed a 13F-HR).
+_FUNDS_CSV = _os.path.join(
+    _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))),
+    "data",
+    "hedge_funds.csv",
+)
+
+# Hardcoded fallback: the 10 canonical funds, used only if the CSV is missing or
+# unreadable so the app never breaks. Each CIK is a verified 13F-HR filer.
+_FALLBACK_FUNDS: dict[int, str] = {
     1067983: "Berkshire Hathaway (Warren Buffett)",
     1649339: "Scion Asset Management (Michael Burry)",
     1336528: "Pershing Square (Bill Ackman)",
@@ -57,6 +70,45 @@ FAMOUS_FUNDS: dict[int, str] = {
     1079114: "Greenlight Capital (David Einhorn)",
 }
 
+
+def _load_funds(path: str = _FUNDS_CSV) -> tuple[dict[int, str], dict[int, str]]:
+    """Load the hedge-fund universe from CSV.
+
+    Returns (all_funds, featured_funds) as {cik: name} dicts. `all_funds` is the
+    full universe (hundreds) used for cross-fund consensus; `featured_funds` is
+    the small famous subset (featured==1) rendered as per-fund cards. Falls back
+    to the 10 canonical funds if the CSV is missing/empty/unreadable.
+    """
+    all_funds: dict[int, str] = {}
+    featured: dict[int, str] = {}
+    try:
+        with open(path, newline="", encoding="utf-8") as fh:
+            for row in _csv.DictReader(fh):
+                try:
+                    cik = int(row["cik"])
+                except (KeyError, ValueError, TypeError):
+                    continue
+                name = (row.get("name") or "").strip()
+                if not name:
+                    continue
+                all_funds[cik] = name
+                if str(row.get("featured", "")).strip() == "1":
+                    featured[cik] = name
+    except Exception:
+        logger.warning("hedge_funds.csv unreadable; using fallback fund list", exc_info=True)
+
+    if not all_funds:
+        logger.warning("hedge_funds.csv empty/missing; using fallback fund list")
+        all_funds = dict(_FALLBACK_FUNDS)
+    if not featured:
+        featured = dict(_FALLBACK_FUNDS)
+    return all_funds, featured
+
+
+# FAMOUS_FUNDS: the FULL universe (hundreds) -> drives cross-fund consensus and
+# all name lookups. FEATURED_FUNDS: the famous subset -> drives per-fund cards.
+FAMOUS_FUNDS, FEATURED_FUNDS = _load_funds()
+
 _CACHE_TTL = 12 * 3600  # 12 hours
 # key -> (monotonic_timestamp, value)
 _holdings_cache: dict[int, tuple[float, dict]] = {}
@@ -67,7 +119,24 @@ def _local(tag: str) -> str:
     return tag.rsplit("}", 1)[-1]
 
 
+# Cross-thread rate limiter — EDGAR fair-access is 10 req/s. We cap the *start*
+# rate of all requests (across the consensus thread pool) to ~9/s; network waits
+# still overlap, so parallelism speeds things up while staying within EDGAR limits.
+_rate_lock = threading.Lock()
+_last_req = [0.0]
+_MIN_INTERVAL = 0.11
+
+
+def _throttle() -> None:
+    with _rate_lock:
+        wait = _MIN_INTERVAL - (time.monotonic() - _last_req[0])
+        if wait > 0:
+            time.sleep(wait)
+        _last_req[0] = time.monotonic()
+
+
 def _get_json(url: str):
+    _throttle()
     resp = requests.get(url, headers=_HEADERS, timeout=_TIMEOUT)
     resp.raise_for_status()
     return resp.json()
@@ -113,6 +182,7 @@ def _find_info_table_url(cik: int, accession: str) -> str | None:
 def _parse_info_table(url: str) -> list[dict]:
     """Parse an info-table XML into aggregated-by-CUSIP holdings."""
     try:
+        _throttle()
         resp = requests.get(url, headers=_HEADERS, timeout=_TIMEOUT)
         resp.raise_for_status()
         tree = ET.fromstring(resp.text)
@@ -140,6 +210,7 @@ def _parse_info_table(url: str) -> list[dict]:
         except ValueError:
             shares = 0.0
         row = agg[cusip]
+        row["cusip"] = cusip
         row["value"] += value
         row["shares"] += shares
         if not row["issuer"]:
@@ -280,7 +351,11 @@ def get_fund_changes(cik: int) -> dict:
 
 
 def get_all_funds() -> list[dict]:
-    """Best-effort summary across all famous funds (skips failures).
+    """Best-effort per-fund summary across the FEATURED funds (skips failures).
+
+    Iterates only FEATURED_FUNDS (the famous ~15), not the full FAMOUS_FUNDS
+    universe: rendering cards + EDGAR calls for hundreds of funds would be far
+    too slow. Cross-fund consensus (get_consensus) still uses the full universe.
 
     Returns a list of: {
         "cik": int, "name": str, "filing_date": str|None,
@@ -289,14 +364,14 @@ def get_all_funds() -> list[dict]:
     }
     """
     out = []
-    for cik in FAMOUS_FUNDS:
+    for cik in FEATURED_FUNDS:
         try:
             holdings = get_fund_holdings(cik)
             changes = get_fund_changes(cik)
             out.append(
                 {
                     "cik": cik,
-                    "name": FAMOUS_FUNDS[cik],
+                    "name": FEATURED_FUNDS[cik],
                     "filing_date": holdings.get("filing_date"),
                     "top_holdings": holdings.get("holdings", [])[:3],
                     "recent_changes": {
@@ -311,3 +386,181 @@ def get_all_funds() -> list[dict]:
             logger.exception("get_all_funds: skipping CIK %s", cik)
         time.sleep(0.3)  # be polite to EDGAR
     return out
+
+
+_consensus_cache: tuple[float, dict] | None = None
+# 13F data only changes quarterly, so cache the consensus for ~a quarter; the
+# scheduler force-refreshes it during the filing window (see is_13f_filing_window).
+_CONSENSUS_TTL = 80 * 24 * 3600
+
+
+def is_13f_filing_window(today: _dt.date | None = None) -> bool:
+    """True during the ~3-week window each quarter when 13F-HRs are filed.
+
+    13F-HRs are due 45 days after quarter-end: ~Feb 14, May 15, Aug 14, Nov 14.
+    We treat (deadline - 7 days) .. (deadline + 16 days) as "filing season", when
+    new filings stream in and the consensus should refresh aggressively."""
+    d = today or _dt.date.today()
+    deadlines = [_dt.date(d.year, 2, 14), _dt.date(d.year, 5, 15),
+                 _dt.date(d.year, 8, 14), _dt.date(d.year, 11, 14)]
+    return any(-7 <= (d - dl).days <= 16 for dl in deadlines)
+
+
+def _fund_latest_rows(cik: int) -> tuple[int, str | None, list[dict]]:
+    """Fetch one fund's latest-13F holdings (the parallelizable network work)."""
+    try:
+        filings = _list_13f_filings(cik)
+        if not filings:
+            return cik, None, []
+        latest = filings[0]
+        return cik, latest.get("date"), _holdings_for_filing(cik, latest["accession"])
+    except Exception:
+        logger.exception("consensus: CIK %s fetch failed", cik)
+        return cik, None, []
+
+
+def _report_quarter(date_str: str | None) -> str | None:
+    """Map a 13F-HR *filing* date (~45d after quarter-end) to the quarter it reports."""
+    if not date_str:
+        return None
+    try:
+        y, m, _ = (int(x) for x in date_str.split("-"))
+    except (ValueError, AttributeError):
+        return None
+    if m <= 3:
+        return f"Q4 {y - 1}"
+    if m <= 6:
+        return f"Q1 {y}"
+    if m <= 9:
+        return f"Q2 {y}"
+    return f"Q3 {y}"
+
+
+def get_consensus(top_per_fund: int = 25, min_funds: int = 2, force: bool = False) -> dict:
+    """Cross-fund overlap: which names the famous funds are collectively in.
+
+    Aggregates each fund's latest-13F top positions by CUSIP issuer (first 6 digits,
+    so share classes merge) and counts how many funds hold each. The "consensus bets"
+    are the issuers held by the most funds. Per-fund EDGAR fetches run in parallel
+    (rate-limited to EDGAR's 10 req/s). Cached ~a quarter; the scheduler force-refreshes
+    during the filing window so new filings appear same-day. Pass force=True to refresh.
+
+    Returns: {
+        "funds_total": int,            # funds we got holdings for
+        "as_of": str|None,             # latest filing date seen
+        "quarter": str|None,           # e.g. "Q1 2026"
+        "consensus": [{
+            "issuer": str, "cusip6": str, "fund_count": int, "total_value_usd": int,
+            "holders": [{"name","cik","value_usd","shares","weight_pct","date"}, ...],
+        }, ...]                        # sorted by fund_count, then total value
+    }
+    """
+    global _consensus_cache
+    now = time.monotonic()
+    if not force and _consensus_cache and now - _consensus_cache[0] < _CONSENSUS_TTL:
+        return _consensus_cache[1]
+
+    # Fetch every fund's latest holdings in parallel (network-bound; throttled to
+    # ~9 req/s globally so we stay within EDGAR's 10/s limit).
+    fetched: dict[int, tuple[str | None, list[dict]]] = {}
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        futs = {pool.submit(_fund_latest_rows, cik): cik for cik in FAMOUS_FUNDS}
+        for fut in as_completed(futs):
+            cik, fdate, rows = fut.result()
+            fetched[cik] = (fdate, rows)
+
+    agg: dict[str, dict] = {}
+    funds_seen = 0
+    dates: list[str] = []
+    for cik, name in FAMOUS_FUNDS.items():  # deterministic aggregation order
+        fdate, rows = fetched.get(cik, (None, []))
+        if not rows:
+            continue
+        funds_seen += 1
+        if fdate:
+            dates.append(fdate)
+        port_val = sum(r["value"] for r in rows) or 1.0
+        for r in rows[:top_per_fund]:
+            key = (r.get("cusip") or r.get("issuer") or "")[:6].upper()
+            if not key:
+                continue
+            a = agg.setdefault(key, {"issuer": r["issuer"], "total_value": 0.0, "by_fund": {}})
+            a["total_value"] += r["value"]
+            # keep the shortest issuer label (usually the cleanest base name)
+            if r["issuer"] and (not a["issuer"] or len(r["issuer"]) < len(a["issuer"])):
+                a["issuer"] = r["issuer"]
+            # one entry per fund — a fund holding multiple share classes (same CUSIP-6)
+            # is merged so fund_count counts DISTINCT funds.
+            hf = a["by_fund"].setdefault(cik, {
+                "name": name, "cik": cik, "value_usd": 0, "shares": 0, "weight_pct": 0.0, "date": fdate,
+            })
+            hf["value_usd"] += int(r["value"])
+            hf["shares"] += int(r["shares"])
+            hf["weight_pct"] = round(hf["weight_pct"] + r["value"] / port_val * 100, 1)
+
+    consensus = []
+    for key, a in agg.items():
+        n = len(a["by_fund"])
+        if n >= min_funds:
+            consensus.append({
+                "issuer": a["issuer"],
+                "cusip6": key,
+                "fund_count": n,
+                "total_value_usd": int(a["total_value"]),
+                "holders": sorted(a["by_fund"].values(), key=lambda x: x["value_usd"], reverse=True),
+            })
+    consensus.sort(key=lambda x: (x["fund_count"], x["total_value_usd"]), reverse=True)
+    consensus = consensus[:150]                  # cap the list (mega-caps dominate the tail)
+    for c in consensus:
+        c["holders"] = c["holders"][:25]         # cap holders per name (payload size)
+
+    result = {
+        "funds_total": funds_seen,
+        "as_of": max(dates) if dates else None,
+        "quarter": _report_quarter(max(dates)) if dates else None,
+        "consensus": consensus,
+        "computing": False,
+    }
+    _consensus_cache = (now, result)
+    return result
+
+
+# ── Non-blocking access + background warming ────────────────────────────────
+# With hundreds of funds a cold scrape takes minutes, so the API never calls
+# get_consensus() directly — it serves the cache and warms in the background.
+_warming_lock = threading.Lock()
+_is_warming = False
+
+
+def warm_consensus(force: bool = False) -> None:
+    """Build/refresh the consensus in a background thread (one at a time)."""
+    global _is_warming
+    with _warming_lock:
+        if _is_warming:
+            return
+        _is_warming = True
+
+    def _run() -> None:
+        global _is_warming
+        try:
+            get_consensus(force=force)
+        except Exception:
+            logger.exception("consensus warm failed")
+        finally:
+            with _warming_lock:
+                _is_warming = False
+
+    threading.Thread(target=_run, daemon=True, name="consensus-warm").start()
+
+
+def get_consensus_cached() -> dict:
+    """Non-blocking: return the cached consensus immediately. If it's cold or
+    stale, kick a background build and return a 'computing' placeholder (or the
+    stale data flagged) so the request never blocks for minutes."""
+    now = time.monotonic()
+    if _consensus_cache and now - _consensus_cache[0] < _CONSENSUS_TTL:
+        return _consensus_cache[1]
+    warm_consensus(force=False)
+    if _consensus_cache:  # serve stale while refreshing
+        return {**_consensus_cache[1], "computing": True}
+    return {"funds_total": 0, "as_of": None, "quarter": None, "consensus": [], "computing": True}

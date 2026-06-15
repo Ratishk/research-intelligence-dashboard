@@ -353,6 +353,24 @@ FDARECALL_SOURCES: list[tuple[str, str, str, str, int]] = [
     for name, tk in _FDA_COMPANIES
 ]
 
+# openFDA approvals + recalls (biotech/pharma catalysts). No key.
+# handle = "Firm Name|TICKER|FDA_SPONSOR_TOKEN" — the token is the uppercase
+# single word openFDA's drugsfda sponsor_name is registered under (verified live).
+_OPENFDA_COMPANIES = [
+    ("Pfizer", "PFE", "PFIZER"),
+    ("Eli Lilly", "LLY", "LILLY"),
+    ("Merck", "MRK", "MERCK"),
+    ("AbbVie", "ABBV", "ABBVIE"),
+    ("Amgen", "AMGN", "AMGEN"),
+    ("Bristol Myers Squibb", "BMY", "BRISTOL"),
+    ("Moderna", "MRNA", "MODERNA"),
+    ("BioNTech", "BNTX", "BIONTECH"),
+]
+OPENFDA_SOURCES: list[tuple[str, str, str, str, int]] = [
+    (f"openFDA — {tk}", "openfda", "", f"{name}|{tk}|{tok}", 1)
+    for name, tk, tok in _OPENFDA_COMPANIES
+]
+
 # Bluesky accounts (FREE social — replaces paid X). handle = bsky handle.
 # Starter set; curate via the Sources tab (type "bluesky").
 BLUESKY_SOURCES: list[tuple[str, str, str, str, int]] = [

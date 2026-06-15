@@ -21,17 +21,21 @@ from app.discovery import engine as discovery_engine
 from app.ingestion.runner import run_all_ingestion
 from app.models import (
     DailyFinding,
+    Holding,
     Industry,
     Item,
+    Portfolio,
     ShiftAlert,
     Signal,
     Source,
     SourceStatus,
+    SourceType,
     Thesis,
     ThesisEvidence,
     Ticker,
     WatchlistItem,
 )
+from app.ingestion import portfolio as portfolio_ingest
 from app.processing import digest as digest_mod
 from app.processing import research
 from app.processing.alpha import score_signals
@@ -81,6 +85,13 @@ def _run_ingest_background() -> None:
 @app.on_event("startup")
 def _startup() -> None:
     init_db()
+    # Pre-warm the hedge-fund consensus in the background so the first page load
+    # is instant (a cold scrape over hundreds of funds takes a few minutes).
+    try:
+        from app.processing.funds import warm_consensus
+        warm_consensus(force=False)
+    except Exception:
+        logger.exception("consensus pre-warm failed to start")
 
 
 # ---------------------------------------------------------------- serialization
@@ -292,6 +303,161 @@ def signal_research(signal_id: int, db: Session = Depends(get_db)) -> JSONRespon
     brief = research.generate_brief(db, signal)
     db.commit()
     return JSONResponse({"research_brief": brief})
+
+
+# --------------------------------------------------------- form 144 / 8-K feeds
+_FORM144_PREFIX = "FORM144_JSON "
+
+
+@app.get("/api/form144")
+def list_form144(days: int = 30, db: Session = Depends(get_db)) -> JSONResponse:
+    """Planned insider sales (Form 144) within the window — contract C2.
+
+    Reads the structured payload stashed in Item.content by the form144 ingester
+    (prefixed FORM144_JSON). Falls back to the item's own fields if a row predates
+    the structured-content format.
+    """
+    cutoff = datetime.now(timezone.utc) - timedelta(days=max(days, 1))
+    rows = db.execute(
+        select(Item)
+        .join(Source, Item.source_id == Source.id)
+        .where(Source.type == SourceType.form144.value)
+        .order_by(Item.published_at.desc().nullslast())
+        .limit(500)
+    ).scalars().all()
+
+    items = []
+    for it in rows:
+        filed_dt = _as_aware(it.published_at) if it.published_at else None
+        if filed_dt is None or filed_dt < cutoff:
+            continue
+        content = it.content or ""
+        # Prefer the structured rows the ingester writes (FORM144_JSON payload).
+        # Legacy unstructured rows (person="SEC Form 144", no shares/ticker) carry
+        # no usable C2 fields, so skip them rather than pad the feed with blanks.
+        if not content.startswith(_FORM144_PREFIX):
+            continue
+        try:
+            payload = json.loads(content[len(_FORM144_PREFIX):])
+        except json.JSONDecodeError:
+            payload = {}
+        items.append({
+            "filed": filed_dt.isoformat() if filed_dt else payload.get("filed"),
+            "person": payload.get("person") or it.author or "",
+            "issuer": payload.get("issuer") or "",
+            "ticker": payload.get("ticker") or "",
+            "shares": payload.get("shares"),
+            "value_usd": payload.get("value_usd"),
+            "approx_sale_date": payload.get("approx_sale_date"),
+            "url": payload.get("url") or it.url,
+        })
+    return JSONResponse({"items": items, "count": len(items)})
+
+
+@app.get("/api/unusual-whales")
+def list_unusual_whales(limit: int = 50, db: Session = Depends(get_db)) -> JSONResponse:
+    """Latest persisted Unusual Whales data from research.db (NOT a live passthrough).
+
+    Reads the newest rows from each uw_* table (by pulled_at) and returns them
+    grouped by feed. raw_json is parsed back to objects so the client gets the
+    full point-in-time payload. Driven by the unusual_whales ingester.
+    """
+    from app.models import (
+        UWCongress,
+        UWDarkpool,
+        UWFlowAlert,
+        UWGreeks,
+        UWInsider,
+        UWMarketTide,
+    )
+
+    feeds = {
+        "market_tide": UWMarketTide,
+        "flow_alerts": UWFlowAlert,
+        "darkpool": UWDarkpool,
+        "congress": UWCongress,
+        "insider": UWInsider,
+        "greeks": UWGreeks,
+    }
+    cap = max(1, min(limit, 500))
+    out: dict[str, list] = {}
+    total = 0
+    for name, model in feeds.items():
+        rows = db.execute(
+            select(model).order_by(model.pulled_at.desc()).limit(cap)
+        ).scalars().all()
+        items = []
+        for r in rows:
+            try:
+                payload = json.loads(r.raw_json) if r.raw_json else {}
+            except json.JSONDecodeError:
+                payload = {}
+            pulled = r.pulled_at
+            items.append({
+                "uw_hash": r.uw_hash,
+                "pulled_at": (_as_aware(pulled).isoformat() if pulled else None),
+                "data": payload,
+            })
+        out[name] = items
+        total += len(items)
+    return JSONResponse({"feeds": out, "count": total})
+
+
+@app.get("/api/events8k")
+def list_events8k(days: int = 14, db: Session = Depends(get_db)) -> JSONResponse:
+    """Material 8-K events within the window — contract C2.
+
+    Each 8-K signal/item is labelled+directioned by the events8k ingester; the
+    item codes are parsed from the "Items: x.xx,y.yy" suffix stored in content.
+    """
+    from app.ingestion.events8k import _ITEMS  # label/direction source of truth
+
+    cutoff = datetime.now(timezone.utc) - timedelta(days=max(days, 1))
+    sigs = db.execute(
+        select(Signal)
+        .join(Item, Signal.item_id == Item.id)
+        .join(Source, Item.source_id == Source.id)
+        .where(Source.type == SourceType.form8k.value)
+        .order_by(Signal.created_at.desc())
+        .limit(500)
+    ).scalars().all()
+
+    events = []
+    by_item: dict[str, int] = {}
+    for s in sigs:
+        item = s.item
+        if item is None:
+            continue
+        filed_dt = _as_aware(item.published_at) if item.published_at else (
+            _as_aware(s.created_at) if s.created_at else None
+        )
+        if filed_dt is None or filed_dt < cutoff:
+            continue
+        content = item.content or ""
+        codes: list[str] = []
+        if "Items:" in content:
+            raw = content.rsplit("Items:", 1)[-1]
+            codes = [c.strip() for c in raw.split(",") if c.strip() in _ITEMS]
+        label = ""
+        if codes:
+            label = _ITEMS[codes[0]][0]
+        try:
+            entities = json.loads(s.entities_json or "{}")
+        except json.JSONDecodeError:
+            entities = {}
+        tickers = entities.get("tickers") or []
+        events.append({
+            "ticker": tickers[0] if tickers else "",
+            "item_codes": codes,
+            "label": label,
+            "direction": s.direction,
+            "summary": s.summary,
+            "url": item.url,
+            "filed": filed_dt.isoformat(),
+        })
+        for c in codes:
+            by_item[c] = by_item.get(c, 0) + 1
+    return JSONResponse({"events": events, "by_item": by_item})
 
 
 # ------------------------------------------------------------------ watchlists
@@ -915,6 +1081,27 @@ def get_fund_detail(cik: int) -> JSONResponse:
     })
 
 
+@app.get("/api/fund-consensus")
+def get_fund_consensus() -> JSONResponse:
+    """Cross-fund overlap from 13F filings — what the famous funds collectively hold.
+
+    Auto-refreshes each quarter as new 13F-HRs land. Non-blocking: serves the
+    cache and warms in the background (a cold scrape over hundreds of funds takes
+    minutes), returning {"computing": true} until the first build finishes."""
+    from app.processing.funds import get_consensus_cached
+    return JSONResponse(get_consensus_cached())
+
+
+@app.get("/api/insider-clusters")
+def get_insider_clusters() -> JSONResponse:
+    """Insider cluster buys — stocks where multiple insiders bought at once.
+
+    Clustered Form 4 purchases are a high-conviction bullish signal. Scraped from
+    OpenInsider (6h cache, graceful fallback)."""
+    from app.processing.openinsider import get_cluster_buys
+    return JSONResponse(get_cluster_buys())
+
+
 @app.get("/api/short-volume")
 def get_short_volume_endpoint(db: Session = Depends(get_db)) -> JSONResponse:
     """FINRA daily short-volume % for watchlist tickers."""
@@ -1117,7 +1304,8 @@ def synthesize_conviction(db: Session = Depends(get_db)) -> JSONResponse:
 def _ticker_dossier(db: Session, ticker: str) -> dict:
     """Assemble everything we know about one ticker for the investor panel."""
     sym = ticker.upper()
-    cutoff = datetime.now(timezone.utc) - timedelta(days=21)
+    # Signal.created_at is stored naive (SQLite) — compare against a naive utc cutoff.
+    cutoff = datetime.utcnow() - timedelta(days=21)
     sigs = db.execute(
         select(Signal).where(Signal.created_at >= cutoff).order_by(Signal.created_at.desc())
     ).scalars().all()
@@ -1138,8 +1326,12 @@ def _ticker_dossier(db: Session, ticker: str) -> dict:
             })
     flow = next((f for f in _smart_money_data(db, 21)["flow"] if f["ticker"] == sym), None)
     tk = db.get(Ticker, sym)
+    latest_signal_at = max(
+        (m["created_at"] for m in mine if m.get("created_at")), default=None
+    )
     return {
         "ticker": sym,
+        "latest_signal_at": latest_signal_at,
         "name": tk.name if tk else None,
         "price": tk.price if tk else None,
         "consensus": tk.consensus_label if tk else None,
@@ -1157,18 +1349,48 @@ def _ticker_dossier(db: Session, ticker: str) -> dict:
     }
 
 
-@app.get("/api/ticker/{symbol}")
-def get_ticker(symbol: str, db: Session = Depends(get_db)) -> JSONResponse:
-    """Everything we know about one ticker, in one payload (the Ticker Dossier)."""
+def _ticker_full(db: Session, symbol: str, *, enrich: bool = True) -> dict:
+    """The complete dossier for one ticker: on-demand enrichment + everything we
+    aggregate (price/consensus/RVOL, SEC fundamentals, smart-money flow, recent
+    signals, short volume, FTDs, theses, portfolio membership). Shared by the
+    Ticker Dossier, the Ask aggregator, and the Investor Lens.
+    """
+    from app.processing import fundamentals
     sym = symbol.upper()
+    # Keep market data current: re-pull unless refreshed in the last 15 min. Works
+    # off the un-throttled Yahoo v8 chart even for off-watchlist names (e.g. AAOI).
+    if enrich:
+        tk = db.get(Ticker, sym)
+        stale = tk is None or tk.updated_at is None or (
+            datetime.utcnow() - tk.updated_at.replace(tzinfo=None)
+        ) > timedelta(minutes=15)
+        if stale:
+            try:
+                refresh_ticker(db, sym)
+                db.commit()
+            except Exception:
+                logger.warning("refresh_ticker failed for %s", sym, exc_info=True)
+                db.rollback()
     d = _ticker_dossier(db, sym)
-    # Short-volume + fails-to-deliver
-    from app.processing.short_volume import get_short_volume
-    from app.processing.ftd import get_ftd
-    sv = get_short_volume([sym]).get("tickers", [])
-    d["short_volume_pct"] = sv[0]["short_pct"] if sv else None
-    ftd = get_ftd([sym]).get("tickers", [])
-    d["ftd_fails"] = ftd[0]["fails"] if ftd else None
+    d["fundamentals"] = fundamentals.get_fundamentals(sym)
+    tkr = db.get(Ticker, sym)
+    d["price_updated_at"] = tkr.updated_at.isoformat() if tkr and tkr.updated_at else None
+    # Short-volume + fails-to-deliver (best-effort — a transient FINRA/SEC failure
+    # must not empty the dossier).
+    d["short_volume_pct"] = None
+    d["ftd_fails"] = None
+    try:
+        from app.processing.short_volume import get_short_volume
+        sv = get_short_volume([sym]).get("tickers", [])
+        d["short_volume_pct"] = sv[0]["short_pct"] if sv else None
+    except Exception:
+        logger.info("short volume fetch failed for %s", sym)
+    try:
+        from app.processing.ftd import get_ftd
+        ftd = get_ftd([sym]).get("tickers", [])
+        d["ftd_fails"] = ftd[0]["fails"] if ftd else None
+    except Exception:
+        logger.info("ftd fetch failed for %s", sym)
     # Theses touching this ticker
     theses = db.execute(select(Thesis)).scalars().all()
     d["theses"] = [
@@ -1176,25 +1398,194 @@ def get_ticker(symbol: str, db: Session = Depends(get_db)) -> JSONResponse:
         for t in theses
         if sym in {x.strip().upper() for x in (t.tickers or "").split(",")}
     ]
-    return JSONResponse(d)
+    # Portfolio membership
+    held = portfolio_ingest.held_tickers(db)
+    d["held"] = sym in held
+    if d["held"]:
+        d["weight_pct"] = next(
+            (h["weight_pct"] for h in portfolio_ingest.holdings_list(db)
+             if (h.get("yfinance_ticker") or h.get("ticker", "")).upper() == sym), None
+        )
+    return d
+
+
+@app.get("/api/ticker/{symbol}")
+def get_ticker(symbol: str, db: Session = Depends(get_db)) -> JSONResponse:
+    """Everything we know about one ticker, in one payload (the Ticker Dossier)."""
+    return JSONResponse(_ticker_full(db, symbol))
 
 
 @app.post("/api/investor-lens")
 def investor_lens(payload: dict, db: Session = Depends(get_db)) -> JSONResponse:
     """Judge a ticker through legendary-investor frameworks."""
     from app.processing import investor_lens as lens
-    ticker = (payload.get("ticker") or "").strip().upper()
-    if not ticker:
+    from app.processing import fundamentals
+    raw = (payload.get("ticker") or "").strip()
+    if not raw:
         raise HTTPException(400, "ticker required")
     if not claude.is_configured():
         raise HTTPException(503, "ANTHROPIC_API_KEY not configured")
-    dossier = _ticker_dossier(db, ticker)
-    result = lens.analyze(ticker, dossier)
+    # Accept a company name too, and resolve it to a real symbol (e.g. "harmonic" -> HLIT).
+    sym = fundamentals.resolve_symbol(raw) or raw.upper()
+    # Refresh the Ticker row so the panel reads CURRENT price/volume/consensus —
+    # the lens is a user-clicked, low-frequency action, so we re-pull unless it
+    # was refreshed in the last 15 min (avoids redundant fetches on rapid re-runs).
+    # Works via the un-throttled Yahoo v8 chart even when yfinance 429s.
+    tk = db.get(Ticker, sym)
+    stale = tk is None or tk.updated_at is None or (
+        datetime.utcnow() - tk.updated_at.replace(tzinfo=None)
+    ) > timedelta(minutes=15)
+    if stale:
+        try:
+            refresh_ticker(db, sym)
+            db.commit()
+        except Exception:
+            logger.warning("refresh_ticker failed for %s", sym, exc_info=True)
+            db.rollback()
+    dossier = _ticker_dossier(db, sym)
+    dossier["fundamentals"] = fundamentals.get_fundamentals(sym)
+    # Surface data freshness so the UI can show how current each input is.
+    tkr = db.get(Ticker, sym)
+    dossier["price_updated_at"] = (
+        tkr.updated_at.isoformat() if tkr and tkr.updated_at else None
+    )
+    result = lens.analyze(sym, dossier)
+    result["ticker"] = sym
     result["dossier"] = dossier
     return JSONResponse(result)
 
 
+# ------------------------------------------------------------------- portfolio
+def _enrich_portfolio_tickers() -> None:
+    """Background: enrich the now-tracked holdings (price/consensus via the same
+    path the 6h cron uses) and warm the SEC fundamentals cache, so a freshly
+    synced portfolio is immediately queryable instead of waiting for the cron."""
+    from app.database import session_scope
+    from app.processing.tickers import refresh_watchlist_tickers
+    from app.processing import fundamentals
+    try:
+        with session_scope() as s:
+            refresh_watchlist_tickers(s)
+            held = list(portfolio_ingest.held_tickers(s))
+        for sym in held:
+            try:
+                fundamentals.get_fundamentals(sym)  # warms the 24h cache
+            except Exception:
+                logger.debug("fundamentals warm failed for %s", sym, exc_info=True)
+    except Exception:
+        logger.warning("portfolio enrichment failed", exc_info=True)
+
+
+@app.post("/api/portfolio/import")
+def import_portfolio(
+    background: BackgroundTasks, db: Session = Depends(get_db)
+) -> JSONResponse:
+    """Re-read the LCO holdings snapshot file into the DB (replace-all), auto-track
+    the holdings, and kick off background enrichment."""
+    try:
+        counts = portfolio_ingest.import_holdings(db)
+    except FileNotFoundError:
+        raise HTTPException(
+            404, f"holdings snapshot not found at {config.LCO_HOLDINGS_PATH}"
+        )
+    background.add_task(_enrich_portfolio_tickers)
+    counts["enriching"] = True
+    return JSONResponse(counts)
+
+
+@app.get("/api/portfolio")
+def get_portfolio(db: Session = Depends(get_db)) -> JSONResponse:
+    """The current portfolio: meta + equity holdings enriched with our own
+    ticker data (price/consensus/rvol) and recent-signal flow."""
+    holdings = portfolio_ingest.holdings_list(db)
+    meta = portfolio_ingest.portfolio_meta(db) or {}
+
+    # Recent signals once, then bucket per held ticker (naive UTC cutoff to match
+    # how Signal.created_at is stored — see CLAUDE.md datetime trap).
+    cutoff = datetime.utcnow() - timedelta(days=21)
+    recent = db.execute(
+        select(Signal).where(Signal.created_at >= cutoff)
+    ).scalars().all()
+    counts: dict[str, dict[str, int]] = {}
+    for s in recent:
+        try:
+            tks = {str(t).upper() for t in json.loads(s.entities_json or "{}").get("tickers", [])}
+        except json.JSONDecodeError:
+            tks = set()
+        for t in tks:
+            c = counts.setdefault(t, {"count": 0, "bull": 0, "bear": 0})
+            c["count"] += 1
+            if s.direction == "bullish":
+                c["bull"] += 1
+            elif s.direction == "bearish":
+                c["bear"] += 1
+
+    enriched = []
+    for h in holdings:
+        sym = (h.get("yfinance_ticker") or h.get("ticker") or "").upper()
+        tk = db.get(Ticker, sym) if sym else None
+        c = counts.get(sym, {"count": 0, "bull": 0, "bear": 0})
+        enriched.append({
+            **h,
+            "ticker_price": tk.price if tk else None,
+            "consensus_label": tk.consensus_label if tk else None,
+            "consensus_score": tk.consensus_score if tk else None,
+            "rvol": tk.rvol if tk else None,
+            "signal_count": c["count"],
+            "net_signal": c["bull"] - c["bear"],
+        })
+    enriched.sort(key=lambda x: x.get("weight_pct") or 0.0, reverse=True)
+
+    meta = {**meta, "holdings": len(holdings), "equity": len(holdings)}
+    return JSONResponse({"meta": meta, "holdings": enriched})
+
+
 # ------------------------------------------------------------------------- ask
+def _web_read(ticker: str, question: str) -> dict | None:
+    """A live web read on the ticker via Claude's built-in web_search tool (uses
+    the existing Anthropic key — no separate search vendor). None if unavailable."""
+    if not claude.is_configured():
+        return None
+    try:
+        prompt = (
+            f"Search the web for current information and give a concise analyst read "
+            f"on {ticker} relevant to this question: {question}\nCover competitive "
+            f"landscape, recent catalysts, and key risks. 4-6 bullets, include "
+            f"figures/dates where possible."
+        )
+        r = claude.web_search(prompt, max_tokens=900)
+        text = (r or {}).get("text")
+        if not text:
+            return None
+        return {
+            "summary": text[:2000],
+            "citations": [c.get("url") for c in (r.get("citations") or [])[:6] if c.get("url")],
+            "source": "Claude web_search",
+        }
+    except Exception:
+        logger.warning("web read failed for %s", ticker, exc_info=True)
+        return None
+
+
+def _compact_dossier(d: dict) -> dict:
+    """Token-bounded projection of a full ticker dossier for the LLM context —
+    keeps fundamentals/flow/positioning/theses, trims recent_signals."""
+    keys = (
+        "ticker", "name", "price", "change_pct", "consensus", "consensus_score",
+        "rvol", "week52_high", "week52_low", "analyst_rating", "analyst_target",
+        "short_interest_pct", "short_volume_pct", "ftd_fails", "smart_money_flow",
+        "fundamentals", "theses", "held", "weight_pct", "signal_count",
+    )
+    out = {k: d.get(k) for k in keys if d.get(k) is not None}
+    out["recent_signals"] = [
+        {"summary": s.get("summary"), "direction": s.get("direction"),
+         "type": s.get("type"), "date": (s.get("created_at") or "")[:10],
+         "confidence": s.get("confidence")}
+        for s in (d.get("recent_signals") or [])[:6]
+    ]
+    return out
+
+
 @app.post("/api/ask")
 def ask(payload: dict, db: Session = Depends(get_db)) -> JSONResponse:
     """RAG Q&A over our own data. Retrieval is free (local FTS5 + filters); only
@@ -1206,13 +1597,56 @@ def ask(payload: dict, db: Session = Depends(get_db)) -> JSONResponse:
         raise HTTPException(400, "question required")
     if not claude.is_configured():
         raise HTTPException(503, "ANTHROPIC_API_KEY not configured")
+    claude.start_usage()  # tally tokens across the lens + web + final calls
 
-    # Free local retrieval
+    # Free local retrieval over the signal corpus...
     signals = rag.retrieve(db, question, k=15)
+    # ...plus a FULL aggregated dossier for every ticker named (watchlist or not).
+    # _ticker_full enriches on demand, so even an off-watchlist name like AAOI comes
+    # back with price + SEC fundamentals + flow + positioning, not "no data".
     tickers = rag.detect_tickers(db, question)
-    dossiers = [_ticker_dossier(db, t) for t in tickers[:3]]
+    dossiers = [_ticker_full(db, t) for t in tickers[:3]]
 
-    if not signals and not dossiers:
+    held = portfolio_ingest.held_tickers(db)
+    for s in signals:
+        s["held"] = any(str(t).upper() in held for t in s.get("tickers", []))
+
+    # For an evaluative question on a specific name, convene the Investor Lens panel
+    # on the primary ticker and fold its 6-persona read into the answer.
+    lens_panel = None
+    if dossiers and rag.is_evaluative(question):
+        try:
+            from app.processing import investor_lens as _lens
+            lp = _lens.analyze(dossiers[0]["ticker"], dossiers[0])
+            if lp.get("personas"):
+                lens_panel = lp
+        except Exception:
+            logger.warning("investor lens during ask failed", exc_info=True)
+
+    # Cross-source intelligence on the primary named ticker: AI-bottleneck
+    # competitive landscape, firm research (LogiqGPT memos + ChromaDB), and — for
+    # evaluative questions — a live web read. Each degrades to None independently.
+    bottleneck = firm = web = None
+    if dossiers:
+        primary = dossiers[0]["ticker"]
+        try:
+            from app.processing import bottlenecks
+            bottleneck = bottlenecks.get_landscape(primary)
+        except Exception:
+            logger.warning("bottleneck landscape failed", exc_info=True)
+        try:
+            from app.processing import firm_research
+            firm = firm_research.get_research(question, ticker=primary)
+        except Exception:
+            logger.warning("firm research failed", exc_info=True)
+        if rag.is_evaluative(question):
+            web = _web_read(primary, question)
+
+    have_data = bool(signals) or bottleneck or firm or web or any(
+        d.get("price") is not None or d.get("fundamentals") or d.get("recent_signals")
+        for d in dossiers
+    )
+    if not have_data:
         return JSONResponse({
             "answer": "I don't have any aggregated data matching that yet — try a "
                       "ticker, theme, or topic the dashboard tracks.",
@@ -1221,16 +1655,47 @@ def ask(payload: dict, db: Session = Depends(get_db)) -> JSONResponse:
 
     context = {
         "signals": signals,
-        "tickers": [
-            {k: d[k] for k in ("ticker", "price", "consensus", "rvol",
-                               "short_volume_pct", "ftd_fails", "smart_money_flow",
-                               "signal_count") if k in d}
-            for d in dossiers
-        ] if dossiers else [],
+        "tickers": [_compact_dossier(d) for d in dossiers],
     }
+    if lens_panel:
+        context["investor_lens"] = {
+            "ticker": lens_panel.get("ticker"),
+            "personas": lens_panel.get("personas"),
+            "consensus": lens_panel.get("consensus"),
+        }
+    if bottleneck:
+        context["bottleneck_landscape"] = bottleneck
+    if firm:
+        context["firm_research"] = firm
+    if web:
+        context["web"] = web
+    if rag.is_portfolio_query(question) and held:
+        meta = portfolio_ingest.portfolio_meta(db) or {}
+        holdings = portfolio_ingest.holdings_list(db)
+        context["portfolio"] = {
+            "meta": meta,
+            "holdings": [
+                {"ticker": h["ticker"], "name": h["name"],
+                 "weight_pct": h["weight_pct"], "market_value": h["market_value"]}
+                for h in holdings[:25]
+            ],
+            "you_hold": sorted(held),
+        }
     answer_text = rag.generate(question, context)
+    # Token accounting + cost estimate (Sonnet 4.6: $3/1M in, $15/1M out; cache
+    # reads ~$0.30/1M). Excludes the web_search tool's per-search fee.
+    u = claude.get_usage() or {}
+    cost = round(
+        (u.get("input_tokens", 0) * 3.0
+         + u.get("output_tokens", 0) * 15.0
+         + u.get("cache_read", 0) * 0.30) / 1_000_000,
+        4,
+    )
+    usage = {**u, "model": config.SONNET_MODEL, "est_cost_usd": cost,
+             "note": "excludes web_search per-search fee (~$0.01/search)"}
     return JSONResponse({
         "answer": answer_text,
+        "usage": usage,
         "sources": [
             {"summary": s["summary"], "direction": s["direction"],
              "url": s["url"], "date": s["date"]}
@@ -1238,6 +1703,25 @@ def ask(payload: dict, db: Session = Depends(get_db)) -> JSONResponse:
         ],
         "retrieved": len(signals),
         "tickers": tickers,
+        "dossiers": context["tickers"],
+        "investor_lens": context.get("investor_lens"),
+        "firm_docs": [
+            {"filename": fd.get("filename"), "web_url": fd.get("web_url"),
+             "status": fd.get("status"), "modified": fd.get("modified")}
+            for fd in (firm or {}).get("firm_docs", [])[:6]
+        ],
+        "bottleneck_landscape": bottleneck,
+        "sources_used": [
+            name for name, present in (
+                ("dashboard signals", bool(signals)),
+                ("ticker dossier + SEC fundamentals", bool(dossiers)),
+                ("investor lens", bool(lens_panel)),
+                ("AI-bottleneck landscape", bool(bottleneck)),
+                ("LogiqGPT firm research", bool(firm)),
+                ("web", bool(web)),
+                ("portfolio", "portfolio" in context),
+            ) if present
+        ],
     })
 
 
@@ -1515,6 +1999,61 @@ def _smart_money_compute(db: Session, days: int = 14) -> dict:
 def get_smart_money(days: int = 14, db: Session = Depends(get_db)) -> JSONResponse:
     """Insider + politician trades, aggregated per ticker with consensus divergence."""
     return JSONResponse(_smart_money_data(db, days))
+
+
+@app.get("/api/agreement")
+def get_agreement(days: int = 30, db: Session = Depends(get_db)) -> JSONResponse:
+    """Cross-signal agreement — the 'everyone agrees' view.
+
+    Counts, per ticker, how many INDEPENDENT smart-money sources are bullish at once
+    (insider Form-4 buying, insider *cluster* buys, congressional buying, institutional
+    13D/G stakes), keeps names where >=2 align, and flags 'contrarian' when the crowd
+    consensus isn't bullish (that gap is the non-consensus edge). Pure cross-referencing
+    of existing signals — no prediction."""
+    sm = _smart_money_data(db, days)
+    flow = {f["ticker"]: f for f in sm.get("flow", [])}
+
+    from app.processing.openinsider import get_cluster_buys
+    clusters: dict[str, dict] = {}
+    for c in get_cluster_buys().get("clusters", []):
+        t = (c.get("ticker") or "").upper()
+        if t:
+            clusters[t] = c
+
+    out = []
+    for sym in set(flow) | set(clusters):
+        f = flow.get(sym, {})
+        sources = []
+        if f.get("insider_buy", 0) > 0 and f["insider_buy"] > f.get("insider_sell", 0):
+            sources.append({"label": "Insider buying (Form 4)", "detail": f"{f['insider_buy']} buy signal(s)"})
+        if f.get("congress_buy", 0) > 0 and f["congress_buy"] > f.get("congress_sell", 0):
+            sources.append({"label": "Congress buying", "detail": f"{f['congress_buy']} disclosure(s)"})
+        if f.get("inst_buy", 0) > 0 and f["inst_buy"] > f.get("inst_sell", 0):
+            sources.append({"label": "Institutional stake (13D/G)", "detail": f"{f['inst_buy']} filing(s)"})
+        cluster_size = 0
+        if sym in clusters:
+            c = clusters[sym]
+            cluster_size = int(c.get("num_insiders") or 0)
+            val = c.get("value_usd") or 0
+            sources.append({"label": "Insider cluster buy",
+                            "detail": f"{cluster_size or '?'} insiders · ${val / 1e6:.1f}M"})
+        # Qualify on real cross-source agreement (>=2 distinct source types), OR a
+        # strong standalone insider cluster (>=3 insiders all buying the same name).
+        if len(sources) >= 2 or cluster_size >= 3:
+            cons = f.get("consensus_score")
+            out.append({
+                "ticker": sym,
+                "company": (clusters.get(sym) or {}).get("company"),
+                "agreement": len(sources),
+                "cluster_size": cluster_size,
+                "sources": sources,
+                "consensus_score": cons,
+                "consensus_label": f.get("consensus_label"),
+                "contrarian": cons is None or cons <= 0.15,  # crowd not (yet) bullish = the edge
+            })
+    # Multi-source agreements first, then big clusters, edge (contrarian) ranked up.
+    out.sort(key=lambda x: (x["agreement"], x["cluster_size"], x["contrarian"]), reverse=True)
+    return JSONResponse({"days": days, "count": len(out), "tickers": out[:40]})
 
 
 _PRED_STOP = {

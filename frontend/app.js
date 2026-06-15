@@ -161,11 +161,30 @@ async function askQuestion(q) {
     });
     ansEl.innerHTML = `<div class="ask-answer-body">${mdLite(r.answer || "")}</div>`;
     const srcs = r.sources || [];
+    const used = r.sources_used || [];
+    const docs = r.firm_docs || [];
+    let html = "";
+    // What the answer aggregated, as chips.
+    if (used.length) {
+      html += `<div class="ask-used">` + used.map(u =>
+        `<span class="ask-used-chip">${esc(u)}</span>`).join("") + `</div>`;
+    }
+    // Firm research: clickable SharePoint memos/models.
+    if (docs.length) {
+      html += `<div class="ask-src-head">📄 Firm research (SharePoint)</div>`
+        + docs.map(d => {
+            const label = `${esc(d.filename || "document")}${d.status === "indexed" ? "" : " · not yet ingested"}`;
+            return d.web_url
+              ? `<a class="ask-doc" href="${esc(d.web_url)}" target="_blank" rel="noopener">↗ ${label}</a>`
+              : `<div class="ask-doc">${label}</div>`;
+          }).join("");
+    }
     if (srcs.length) {
-      srcEl.innerHTML = `<div class="ask-src-head">Grounded in ${r.retrieved || srcs.length} signal${srcs.length === 1 ? "" : "s"}`
+      html += `<div class="ask-src-head">Grounded in ${r.retrieved || srcs.length} signal${srcs.length === 1 ? "" : "s"}`
         + `${(r.tickers || []).length ? ` · dossiers: ${(r.tickers || []).join(", ")}` : ""}</div>`
         + srcs.map(askSourceCard).join("");
     }
+    srcEl.innerHTML = html;
   } catch (e) {
     ansEl.innerHTML = `<div class="ask-loading">Couldn't answer that — ${esc(e.message || "request failed")}.</div>`;
     console.error(e);
@@ -726,9 +745,145 @@ document.querySelectorAll(".subtab").forEach(btn =>
     const target = btn.dataset.subview;
     document.querySelectorAll(`#view-smart-money .subview`).forEach(v =>
       v.classList.toggle("active", v.id === target));
+    if (target === "sm-agreement-view") loadAgreement();
     if (target === "sm-funds-view") loadFunds();
+    if (target === "sm-consensus-view") loadFundConsensus();
+    if (target === "sm-iclusters-view") loadInsiderClusters();
   })
 );
+
+async function loadAgreement() {
+  const el = document.getElementById("sm-agreement");
+  el.innerHTML = `<div class="empty"><div class="empty-icon">⏳</div><div class="empty-title">Cross-referencing smart-money sources…</div></div>`;
+  try {
+    const d = await api("/api/agreement?days=30");
+    const rows = d.tickers || [];
+    document.getElementById("sm-agreement-meta").textContent =
+      rows.length ? `${rows.length} names where smart money is converging — multi-source agreement + strong insider clusters · last ${d.days}d` : "";
+    if (!rows.length) {
+      el.innerHTML = emptyState("⚡", "No multi-source agreement right now",
+        "When 2+ of insider/cluster/congress/institutional buying line up on one ticker, it shows here.");
+      return;
+    }
+    el.innerHTML = rows.map(agreementCard).join("");
+  } catch (e) {
+    el.innerHTML = emptyState("⚠️", "Couldn't load agreement view", "Try again shortly.");
+  }
+}
+
+function agreementCard(t) {
+  const srcs = (t.sources || []).map(s =>
+    `<div class="agree-src"><span class="agree-src-dot"></span><b>${esc(s.label)}</b><span class="agree-src-d">${esc(s.detail || "")}</span></div>`).join("");
+  const crowd = t.consensus_label
+    ? `crowd: ${esc(t.consensus_label)}` : "crowd: no clear view";
+  const edge = t.contrarian
+    ? `<span class="agree-edge">◆ non-consensus — smart money in early</span>` : "";
+  // Badge: # of distinct sources when ≥2; otherwise the insider-cluster size.
+  const multi = t.agreement >= 2;
+  const badgeN = multi ? t.agreement : (t.cluster_size || t.agreement);
+  const badgeL = multi ? "sources" : "insiders";
+  return `<div class="agree-card${t.contrarian ? " edge" : ""}">
+    <div class="agree-head">
+      <span class="agree-count">${badgeN}<small>${badgeL}</small></span>
+      <span class="agree-tkr" data-ticker="${esc(t.ticker)}">${esc(t.ticker)}</span>
+      ${t.company ? `<span class="agree-co">${esc(t.company)}</span>` : ""}
+      <span class="agree-crowd">${crowd}</span>
+    </div>
+    ${edge}
+    <div class="agree-srcs">${srcs}</div>
+  </div>`;
+}
+
+let _iclustersLoaded = false;
+async function loadInsiderClusters() {
+  if (_iclustersLoaded) return;
+  const el = document.getElementById("sm-iclusters");
+  el.innerHTML = `<div class="empty"><div class="empty-icon">⏳</div><div class="empty-title">Loading insider clusters…</div><div class="empty-sub">Scraping OpenInsider for clustered Form 4 buys.</div></div>`;
+  try {
+    const d = await api("/api/insider-clusters");
+    const rows = d.clusters || [];
+    const meta = document.getElementById("sm-iclusters-meta");
+    meta.textContent = rows.length
+      ? `${rows.length} cluster buys${d.as_of ? " · latest filing " + d.as_of : ""}`
+      : "";
+    if (!rows.length) {
+      el.innerHTML = emptyState("◆", "No cluster buys yet", "OpenInsider may be unreachable; try again shortly.");
+      return;
+    }
+    el.innerHTML = rows.map(clusterRow).join("");
+    _iclustersLoaded = true;
+  } catch (e) {
+    el.innerHTML = emptyState("⚠️", "Failed to load insider clusters", "OpenInsider unreachable — retry shortly.");
+  }
+}
+
+function clusterRow(c) {
+  const val = c.value_usd ? "$" + (c.value_usd / 1e6).toFixed(2) + "M" : "";
+  const n = c.num_insiders || 0;
+  return `<div class="iclus-card">
+    <div class="iclus-head">
+      <span class="iclus-badge">${n}<small>insiders</small></span>
+      <span class="iclus-ticker">${esc(c.ticker)}</span>
+      <span class="iclus-co">${esc(c.company)}</span>
+      <span class="iclus-val">${val}</span>
+    </div>
+    <div class="iclus-meta">${esc(c.industry || "")}${c.trade_date ? " · bought " + esc(c.trade_date) : ""}</div>
+  </div>`;
+}
+
+let _consensusLoaded = false;
+async function loadFundConsensus() {
+  if (_consensusLoaded) return;
+  const el = document.getElementById("sm-consensus");
+  if (!el.innerHTML.trim()) el.innerHTML = `<div class="empty"><div class="empty-icon">⏳</div><div class="empty-title">Computing fund overlap…</div><div class="empty-sub">Cross-referencing hundreds of funds' latest 13Fs.</div></div>`;
+  try {
+    const d = await api("/api/fund-consensus");
+    const rows = d.consensus || [];
+    window._consensusFundsTotal = d.funds_total || 10;
+    const meta = document.getElementById("sm-consensus-meta");
+
+    // First build runs in the background (hundreds of funds → a few minutes); poll until ready.
+    if (d.computing && !rows.length) {
+      meta.textContent = "";
+      el.innerHTML = `<div class="empty"><div class="empty-icon">⏳</div>
+        <div class="empty-title">Building consensus across hundreds of funds…</div>
+        <div class="empty-sub">First run scrapes every fund's latest 13F (a few minutes) — this refreshes automatically.</div></div>`;
+      setTimeout(loadFundConsensus, 15000);
+      return;
+    }
+    if (!rows.length) {
+      el.innerHTML = emptyState("◆", "No overlap data yet", "EDGAR may be throttling; try again shortly.");
+      return;
+    }
+    meta.textContent = `${rows.length} shared names across ${d.funds_total} funds · ${d.quarter || ""}`
+      + `${d.as_of ? " · latest filing " + d.as_of : ""}${d.computing ? " · refreshing…" : ""}`;
+    el.innerHTML = rows.map(consensusRow).join("");
+    el.querySelectorAll("[data-cons]").forEach(c =>
+      c.addEventListener("click", () => c.classList.toggle("open")));
+    if (d.computing) setTimeout(() => { _consensusLoaded = false; loadFundConsensus(); }, 20000);
+    else _consensusLoaded = true;
+  } catch (e) {
+    el.innerHTML = emptyState("⚠️", "Failed to compute consensus", "EDGAR throttled — retry shortly.");
+  }
+}
+
+function consensusRow(c) {
+  const total = c.total_value_usd ? "$" + (c.total_value_usd / 1e9).toFixed(1) + "B" : "";
+  const holders = (c.holders || []).map(h =>
+    `<div class="fund-row"><span class="fund-row-name">${esc(h.name)}</span>
+     <span class="fund-row-val">$${(h.value_usd / 1e9).toFixed(2)}B · ${h.weight_pct}% of book</span></div>`).join("");
+  // strength bar: how many of the funds hold it
+  const pct = Math.round((c.fund_count / (window._consensusFundsTotal || 10)) * 100);
+  return `<div class="cons-card" data-cons="${esc(c.cusip6)}">
+    <div class="cons-head">
+      <span class="cons-count">${c.fund_count}<small>funds</small></span>
+      <span class="cons-name">${esc(c.issuer)}</span>
+      <span class="cons-total">${total}</span>
+    </div>
+    <div class="cons-bar"><span style="width:${Math.min(100, pct)}%"></span></div>
+    <div class="cons-holders">${holders}</div>
+  </div>`;
+}
 
 let _fundsLoaded = false;
 async function loadFunds() {
@@ -826,6 +981,86 @@ async function renderSmartMoney() {
     ? sm.institutional_trades.map(tradeRow).join("")
     : `<div class="mini-sub" style="padding:8px 0">No 13D/13G filings yet.</div>`;
 }
+
+// ─── PORTFOLIO ────────────────────────────────────────────────────────────────
+const fmtMoney = v => {
+  if (v == null) return "—";
+  const a = Math.abs(v);
+  if (a >= 1e9) return "$" + (v / 1e9).toFixed(1) + "B";
+  if (a >= 1e6) return "$" + (v / 1e6).toFixed(1) + "M";
+  if (a >= 1e3) return "$" + (v / 1e3).toFixed(0) + "K";
+  return "$" + v.toFixed(0);
+};
+
+function pfRow(h, maxWeight) {
+  const ns = h.net_signal || 0;
+  const sigCls = ns > 0 ? "bull" : ns < 0 ? "bear" : "flat";
+  const cons = h.consensus_label
+    ? `<span class="analyst-badge ${h.consensus_score > 0.15 ? "buy" : h.consensus_score < -0.15 ? "sell" : "hold"}">${esc(h.consensus_label)}</span>`
+    : `<span class="flow-cons-label">—</span>`;
+  const rvol = h.rvol != null
+    ? `<b class="${h.rvol >= 1.5 ? "up" : ""}">${h.rvol}×</b>`
+    : "—";
+  const wPct = maxWeight > 0 ? Math.round((h.weight_pct / maxWeight) * 100) : 0;
+  return `<tr>
+    <td><span class="sig-ticker" data-ticker="${esc(h.ticker)}">${esc(h.ticker)}</span></td>
+    <td class="pf-co">${esc(h.name || "")}</td>
+    <td class="pf-num">
+      <div class="pf-weight">
+        <span>${(h.weight_pct ?? 0).toFixed(2)}%</span>
+        <div class="pf-weight-bar"><div style="width:${wPct}%"></div></div>
+      </div>
+    </td>
+    <td class="pf-num">${fmtMoney(h.market_value)}</td>
+    <td>${cons}</td>
+    <td class="pf-num">${rvol}</td>
+    <td class="pf-num"><span class="score-badge ${sigCls}">${ns > 0 ? "+" : ""}${ns}</span>
+      <span class="pf-sigcount">${h.signal_count || 0} sig</span></td>
+  </tr>`;
+}
+
+async function renderPortfolio() {
+  const el = document.getElementById("portfolio-content");
+  const d = await api("/api/portfolio");
+  const meta = d.meta || {};
+  const holdings = d.holdings || [];
+
+  document.getElementById("pf-name").textContent = meta.name || "Portfolio";
+  if (!holdings.length) {
+    document.getElementById("pf-meta").textContent =
+      "Import the LCO fund snapshot to see holdings cross-referenced against our signals.";
+    el.innerHTML = emptyState("▤", "No holdings yet", "Click 'Sync from LogiqGPT' to import the LCO fund snapshot.");
+    return;
+  }
+
+  document.getElementById("pf-meta").innerHTML =
+    `${fmtMoney(meta.aum)} AUM · ${(meta.cash_weight_pct ?? 0).toFixed(1)}% cash · `
+    + `${meta.holdings ?? holdings.length} holdings (${meta.equity ?? ""} equity) · `
+    + `synced ${fmtAgo(meta.synced_at)}`;
+
+  const maxWeight = Math.max(...holdings.map(h => h.weight_pct || 0), 0.01);
+  el.innerHTML = `<table class="ask-tbl pf-tbl">
+    <thead><tr>
+      <th>Ticker</th><th>Name</th><th>Weight</th><th>Mkt Value</th>
+      <th>Consensus</th><th>RVOL</th><th>Signals (net)</th>
+    </tr></thead>
+    <tbody>${holdings.map(h => pfRow(h, maxWeight)).join("")}</tbody>
+  </table>`;
+}
+
+document.getElementById("pf-sync")?.addEventListener("click", async () => {
+  const btn = document.getElementById("pf-sync");
+  btn.disabled = true; btn.textContent = "Syncing…";
+  try {
+    const r = await api("/api/portfolio/import", { method: "POST" });
+    toast(`Imported ${r.holdings} holdings (${r.equity} equity)`);
+    await renderPortfolio();
+  } catch (e) {
+    toast("Sync failed — no snapshot file found");
+    console.error(e);
+  }
+  btn.disabled = false; btn.textContent = "Sync from LogiqGPT";
+});
 
 // ─── FORECASTS ────────────────────────────────────────────────────────────────
 let _fcSource = "";
@@ -1136,9 +1371,65 @@ async function renderComposites() {
 }
 
 // ─── INVESTOR LENS ────────────────────────────────────────────────────────────
+// Freshness chips for a dossier: how current the price + signals are.
+function freshBits(dos, opts) {
+  opts = opts || {};
+  const bits = [];
+  if (opts.price && dos.price != null)
+    bits.push(`Price $${esc(dos.price)}${dos.change_pct != null ? ` (${dos.change_pct >= 0 ? "+" : ""}${esc(dos.change_pct)}%)` : ""}`);
+  if (dos.price_updated_at) bits.push(`market data ${esc(fmtAgo(dos.price_updated_at))}`);
+  bits.push(dos.latest_signal_at
+    ? `signals: latest ${esc(fmtAgo(dos.latest_signal_at))}${dos.signal_count ? ` (${esc(dos.signal_count)})` : ""}`
+    : "no recent signals (21d)");
+  return bits;
+}
+
+// SEC fundamentals strip — returns HTML; reused by the Lens and the Ticker Dossier.
+function fundamentalsHtml(f, fresh) {
+  fresh = (fresh || []).filter(Boolean);
+  if (!f) {
+    return fresh.length
+      ? `<div class="lens-fresh">${fresh.join(" · ")} · <span class="lens-fresh-warn">no SEC financials found</span></div>`
+      : "";
+  }
+  const pct = v => v == null ? "—" : `${(v * 100).toFixed(1)}%`;
+  const signed = v => v == null ? "flat" : v > 0 ? "bull" : v < 0 ? "bear" : "flat";
+  const stat = (label, val, cls) =>
+    `<div class="lens-stat"><div class="lens-stat-l">${label}</div><div class="lens-stat-v ${cls || ""}">${val}</div></div>`;
+  const grid =
+    stat("Revenue", fmtMoney(f.revenue)) +
+    stat("Rev YoY", pct(f.revenue_yoy_growth), signed(f.revenue_yoy_growth)) +
+    stat("Gross margin", pct(f.gross_margin)) +
+    stat("Op margin", pct(f.operating_margin), signed(f.operating_margin)) +
+    stat("Net margin", pct(f.net_margin), signed(f.net_margin)) +
+    stat("Net income", fmtMoney(f.net_income), signed(f.net_income)) +
+    stat("Cash", fmtMoney(f.cash)) +
+    stat("Debt/Equity", f.debt_to_equity == null ? "—" : f.debt_to_equity.toFixed(2)) +
+    stat("Shares out", f.shares_outstanding == null ? "—" : (f.shares_outstanding / 1e6).toFixed(0) + "M");
+  const meta = [
+    f.fiscal_year ? `FY${esc(f.fiscal_year)}` : null,
+    f.period_end ? `period ended ${esc(f.period_end)}` : null,
+    esc(f.source || "SEC EDGAR"),
+    ...fresh,
+  ].filter(Boolean).join(" · ");
+  return `<div class="lens-fund">
+       <div class="lens-fund-grid">${grid}</div>
+       <div class="lens-fresh">${meta}</div>
+     </div>`;
+}
+
+// Render the fundamentals + freshness strip above the persona panel.
+function lensFundamentals(f, dossier) {
+  const fundEl = document.getElementById("lens-fundamentals");
+  if (!fundEl) return;
+  fundEl.innerHTML = fundamentalsHtml(f, freshBits(dossier || {}, { price: true }));
+}
+
 async function runInvestorLens(ticker) {
   const cards = document.getElementById("lens-cards");
   const cons = document.getElementById("lens-consensus");
+  const fundEl = document.getElementById("lens-fundamentals");
+  if (fundEl) fundEl.innerHTML = "";
   cons.innerHTML = "";
   cards.innerHTML = `<div class="empty"><div class="empty-icon">⏳</div><div class="empty-title">Convening the panel…</div><div class="empty-sub">Six legendary investors reading ${esc(ticker)}'s dossier.</div></div>`;
   try {
@@ -1149,6 +1440,7 @@ async function runInvestorLens(ticker) {
     const dos = d.dossier || {};
     document.getElementById("lens-meta").textContent =
       `${dos.signal_count || 0} signals · ${dos.consensus || "no consensus"} · ${dos.rvol ? dos.rvol + "x vol" : ""}`;
+    lensFundamentals(dos.fundamentals, dos);
     cons.innerHTML = d.consensus
       ? `<div class="lens-consensus"><b>Panel read:</b> ${esc(d.consensus)}</div>` : "";
     const personas = d.personas || [];
@@ -1292,6 +1584,10 @@ async function renderTickerDossier(sym) {
         ${metricPill("FTD", d.ftd_fails != null ? (d.ftd_fails/1e3).toFixed(0)+"K" : "—")}
         ${metricPill("Analyst", esc(d.analyst_rating ? d.analyst_rating.replace(/_/g," ") : "—"))}
       </div>
+      ${d.fundamentals ? `<div class="dossier-sec">
+        <div class="section-label">Fundamentals · SEC filings</div>
+        ${fundamentalsHtml(d.fundamentals, freshBits(d))}
+      </div>` : ""}
       ${f ? `<div class="dossier-sec">
         <div class="section-label">Smart-money flow (14d)</div>
         <div class="dflow">
@@ -1343,7 +1639,7 @@ document.addEventListener("keydown", e => {
 // ─── Command palette (⌘K) ─────────────────────────────────────────────────────
 const CMDK_TABS = [
   ["conviction","★ Daily Findings"],["ask","Ask the data"],["home","Home"],["theses","Theses"],["guide","Guide"],
-  ["smart-money","Smart Money"],["forecasts","Forecasts"],["investor-lens","Investor Lens"],
+  ["smart-money","Smart Money"],["portfolio","Portfolio"],["forecasts","Forecasts"],["investor-lens","Investor Lens"],
   ["macro","Macro & Pulse"],["signals","Signals"],["theme-shifts","Theme Shifts"],["trends","Trends"],
   ["feed","Feed"],["watchlists","Watchlists"],["industries","Industries"],["sources","Sources"],
 ];
@@ -1418,6 +1714,7 @@ async function renderTab(tab) {
     else if (tab === "home")    await renderHome();
     else if (tab === "macro")   await renderMacro();
     else if (tab === "smart-money") await renderSmartMoney();
+    else if (tab === "portfolio") await renderPortfolio();
     else if (tab === "investor-lens") { /* input-driven; nothing to fetch on open */ }
     else if (tab === "forecasts") { _fcData = null; await renderForecasts(); }
     else if (tab === "feed")    await renderFeed();

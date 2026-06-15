@@ -35,6 +35,53 @@ _MIGRATIONS = [
     "ALTER TABLE tickers ADD COLUMN latest_volume REAL",
     "ALTER TABLE tickers ADD COLUMN change_pct REAL",
     "ALTER TABLE tickers ADD COLUMN change_5d_pct REAL",
+    # Unusual Whales daily REST tables. Base.metadata.create_all() already makes
+    # these for a fresh DB, but an EXISTING research.db won't pick up new ORM
+    # models unless explicitly created here. CREATE TABLE IF NOT EXISTS is a no-op
+    # when the table already exists, so this stays idempotent.
+    (
+        "CREATE TABLE IF NOT EXISTS uw_flow_alerts ("
+        "id INTEGER PRIMARY KEY, uw_hash VARCHAR(64) UNIQUE, ticker VARCHAR(20), "
+        "option_chain VARCHAR(60), type VARCHAR(8), total_premium REAL, "
+        "total_size REAL, created_at DATETIME, raw_json TEXT, pulled_at DATETIME)"
+    ),
+    (
+        "CREATE TABLE IF NOT EXISTS uw_darkpool ("
+        "id INTEGER PRIMARY KEY, uw_hash VARCHAR(64) UNIQUE, ticker VARCHAR(20), "
+        "tracking_id VARCHAR(40), price REAL, size REAL, premium REAL, "
+        "executed_at DATETIME, raw_json TEXT, pulled_at DATETIME)"
+    ),
+    (
+        "CREATE TABLE IF NOT EXISTS uw_congress ("
+        "id INTEGER PRIMARY KEY, uw_hash VARCHAR(64) UNIQUE, ticker VARCHAR(20), "
+        "name VARCHAR(200), txn_type VARCHAR(40), amounts VARCHAR(80), "
+        "transaction_date VARCHAR(20), filed_at_date VARCHAR(20), "
+        "raw_json TEXT, pulled_at DATETIME)"
+    ),
+    (
+        "CREATE TABLE IF NOT EXISTS uw_insider ("
+        "id INTEGER PRIMARY KEY, uw_hash VARCHAR(64) UNIQUE, ticker VARCHAR(20), "
+        "owner_name VARCHAR(200), transaction_code VARCHAR(8), amount REAL, "
+        "price REAL, transaction_date VARCHAR(20), raw_json TEXT, pulled_at DATETIME)"
+    ),
+    (
+        "CREATE TABLE IF NOT EXISTS uw_market_tide ("
+        "id INTEGER PRIMARY KEY, uw_hash VARCHAR(64) UNIQUE, timestamp VARCHAR(40), "
+        "net_call_premium REAL, net_put_premium REAL, net_volume REAL, "
+        "raw_json TEXT, pulled_at DATETIME)"
+    ),
+    (
+        "CREATE TABLE IF NOT EXISTS uw_greeks ("
+        "id INTEGER PRIMARY KEY, uw_hash VARCHAR(64) UNIQUE, ticker VARCHAR(20), "
+        "date VARCHAR(20), expiry VARCHAR(20), strike VARCHAR(20), "
+        "call_gamma REAL, put_gamma REAL, raw_json TEXT, pulled_at DATETIME)"
+    ),
+    "CREATE INDEX IF NOT EXISTS ix_uw_flow_alerts_uw_hash ON uw_flow_alerts (uw_hash)",
+    "CREATE INDEX IF NOT EXISTS ix_uw_darkpool_uw_hash ON uw_darkpool (uw_hash)",
+    "CREATE INDEX IF NOT EXISTS ix_uw_congress_uw_hash ON uw_congress (uw_hash)",
+    "CREATE INDEX IF NOT EXISTS ix_uw_insider_uw_hash ON uw_insider (uw_hash)",
+    "CREATE INDEX IF NOT EXISTS ix_uw_market_tide_uw_hash ON uw_market_tide (uw_hash)",
+    "CREATE INDEX IF NOT EXISTS ix_uw_greeks_uw_hash ON uw_greeks (uw_hash)",
 ]
 
 

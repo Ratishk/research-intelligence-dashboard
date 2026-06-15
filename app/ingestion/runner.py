@@ -6,8 +6,8 @@ import logging
 from app.database import session_scope
 from app.ingestion import (
     biotech, bluesky, community, congress, dilution, events8k, fda, form4,
-    form144, freshrss, govcontracts, institutional, kalshi, patent, prediction,
-    rss, sec, twitter, youtube,
+    form144, freshrss, govcontracts, institutional, kalshi, openfda, patent,
+    prediction, rss, sec, twitter, unusual_whales, youtube,
 )
 
 logger = logging.getLogger(__name__)
@@ -36,11 +36,13 @@ def run_all_ingestion() -> dict[str, int]:
         counts["form144"] = form144.ingest_all(session)
         counts["govcontract"] = govcontracts.ingest_all(session)
         counts["fdarecall"] = fda.ingest_all(session)
+        counts["openfda"] = openfda.ingest_all(session)
         counts["bluesky"] = bluesky.ingest_all(session)
         counts["patent"] = patent.ingest_all(session)
         counts["congress"] = congress.ingest_all(session)
         counts["prediction"] = prediction.ingest_all(session)
         counts["kalshi"] = kalshi.ingest_all(session)
+        counts["unusual_whales"] = unusual_whales.ingest_all(session)
         counts["community"] = community.ingest_all(session)
     logger.info("Ingestion complete: %s", counts)
     return counts

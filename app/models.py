@@ -50,6 +50,7 @@ class SourceType(str, enum.Enum):
     form144 = "form144"
     govcontract = "govcontract"
     fdarecall = "fdarecall"
+    openfda = "openfda"
     bluesky = "bluesky"
 
 
@@ -286,3 +287,135 @@ class ShiftAlert(Base):
     to_score: Mapped[float] = mapped_column(Float)
     recent_total: Mapped[int] = mapped_column(Integer)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, index=True)
+
+
+class Portfolio(Base):
+    """Meta row for a portfolio snapshot (e.g. the LogiqGPT LCO fund)."""
+    __tablename__ = "portfolios"
+
+    source: Mapped[str] = mapped_column(String(40), primary_key=True)  # "LCO"
+    name: Mapped[str] = mapped_column(String(200), default="")
+    aum: Mapped[float | None] = mapped_column(Float, nullable=True)
+    cash_weight_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+    synced_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
+
+
+class Holding(Base):
+    """One position in a portfolio snapshot (equity or cash bucket)."""
+    __tablename__ = "holdings"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    source: Mapped[str] = mapped_column(String(40), index=True)
+    ticker: Mapped[str] = mapped_column(String(20), index=True, default="")
+    name: Mapped[str] = mapped_column(String(200), default="")
+    cusip: Mapped[str] = mapped_column(String(32), default="")
+    shares: Mapped[float | None] = mapped_column(Float, nullable=True)
+    price: Mapped[float | None] = mapped_column(Float, nullable=True)
+    market_value: Mapped[float | None] = mapped_column(Float, nullable=True)
+    weight_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+    bucket: Mapped[str] = mapped_column(String(20), default="")
+    yfinance_ticker: Mapped[str] = mapped_column(String(20), default="")
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
+
+
+# --- Unusual Whales (UW) daily REST data -----------------------------------
+# One table per UW endpoint. Each row carries:
+#   - uw_hash: sha256 over the row's natural key (idempotent upsert via UNIQUE)
+#   - pulled_at: tz-aware UTC fetch time
+#   - raw_json: the point-in-time raw payload for that row (audit/replay)
+# plus a few denormalized columns for cheap querying/serving. Endpoints are all
+# in the UW skill.md whitelist + verified against the OpenAPI.
+
+class UWFlowAlert(Base):
+    """A UW option-flow alert (/api/option-trades/flow-alerts)."""
+    __tablename__ = "uw_flow_alerts"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    uw_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    ticker: Mapped[str] = mapped_column(String(20), index=True, default="")
+    option_chain: Mapped[str] = mapped_column(String(60), default="")
+    type: Mapped[str] = mapped_column(String(8), default="")  # call/put
+    total_premium: Mapped[float | None] = mapped_column(Float, nullable=True)
+    total_size: Mapped[float | None] = mapped_column(Float, nullable=True)
+    created_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
+    raw_json: Mapped[str] = mapped_column(Text, default="")
+    pulled_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, index=True)
+
+
+class UWDarkpool(Base):
+    """A UW recent darkpool print (/api/darkpool/recent)."""
+    __tablename__ = "uw_darkpool"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    uw_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    ticker: Mapped[str] = mapped_column(String(20), index=True, default="")
+    tracking_id: Mapped[str] = mapped_column(String(40), default="")
+    price: Mapped[float | None] = mapped_column(Float, nullable=True)
+    size: Mapped[float | None] = mapped_column(Float, nullable=True)
+    premium: Mapped[float | None] = mapped_column(Float, nullable=True)
+    executed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
+    raw_json: Mapped[str] = mapped_column(Text, default="")
+    pulled_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, index=True)
+
+
+class UWCongress(Base):
+    """A UW congressional trade (/api/congress/recent-trades)."""
+    __tablename__ = "uw_congress"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    uw_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    ticker: Mapped[str] = mapped_column(String(20), index=True, default="")
+    name: Mapped[str] = mapped_column(String(200), default="")
+    txn_type: Mapped[str] = mapped_column(String(40), default="")
+    amounts: Mapped[str] = mapped_column(String(80), default="")
+    transaction_date: Mapped[str] = mapped_column(String(20), default="")
+    filed_at_date: Mapped[str] = mapped_column(String(20), default="")
+    raw_json: Mapped[str] = mapped_column(Text, default="")
+    pulled_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, index=True)
+
+
+class UWInsider(Base):
+    """A UW insider transaction (/api/insider/transactions)."""
+    __tablename__ = "uw_insider"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    uw_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    ticker: Mapped[str] = mapped_column(String(20), index=True, default="")
+    owner_name: Mapped[str] = mapped_column(String(200), default="")
+    transaction_code: Mapped[str] = mapped_column(String(8), default="")
+    amount: Mapped[float | None] = mapped_column(Float, nullable=True)
+    price: Mapped[float | None] = mapped_column(Float, nullable=True)
+    transaction_date: Mapped[str] = mapped_column(String(20), default="")
+    raw_json: Mapped[str] = mapped_column(Text, default="")
+    pulled_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, index=True)
+
+
+class UWMarketTide(Base):
+    """A UW market-tide tick (/api/market/market-tide)."""
+    __tablename__ = "uw_market_tide"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    uw_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    timestamp: Mapped[str] = mapped_column(String(40), default="", index=True)
+    net_call_premium: Mapped[float | None] = mapped_column(Float, nullable=True)
+    net_put_premium: Mapped[float | None] = mapped_column(Float, nullable=True)
+    net_volume: Mapped[float | None] = mapped_column(Float, nullable=True)
+    raw_json: Mapped[str] = mapped_column(Text, default="")
+    pulled_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, index=True)
+
+
+class UWGreeks(Base):
+    """A UW per-day greek-exposure row for a ticker (/api/stock/{ticker}/greeks)."""
+    __tablename__ = "uw_greeks"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    uw_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    ticker: Mapped[str] = mapped_column(String(20), index=True, default="")
+    date: Mapped[str] = mapped_column(String(20), default="", index=True)
+    expiry: Mapped[str] = mapped_column(String(20), default="")
+    strike: Mapped[str] = mapped_column(String(20), default="")
+    call_gamma: Mapped[float | None] = mapped_column(Float, nullable=True)
+    put_gamma: Mapped[float | None] = mapped_column(Float, nullable=True)
+    raw_json: Mapped[str] = mapped_column(Text, default="")
+    pulled_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, index=True)

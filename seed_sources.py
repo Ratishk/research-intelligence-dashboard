@@ -17,8 +17,8 @@ from app.models import Industry, Source, SourceStatus, WatchlistItem
 from app.seed_data import (
     BIOTECH_SOURCES, BLUESKY_SOURCES, DILUTION_SOURCES, EVENT8K_SOURCES,
     FDARECALL_SOURCES, FORM4_SOURCES, FORM144_SOURCES, GOVCONTRACT_SOURCES,
-    INDUSTRIES, INSTITUTIONAL_SOURCES, PATENT_SOURCES, SMART_MONEY_SOURCES,
-    WATCHLISTS,
+    INDUSTRIES, INSTITUTIONAL_SOURCES, OPENFDA_SOURCES, PATENT_SOURCES,
+    SMART_MONEY_SOURCES, WATCHLISTS,
 )
 
 
@@ -86,7 +86,8 @@ def main() -> None:
         for (s_name, s_type, s_url, s_handle, s_tier) in (
             SMART_MONEY_SOURCES + INSTITUTIONAL_SOURCES + DILUTION_SOURCES
             + BIOTECH_SOURCES + EVENT8K_SOURCES + FORM144_SOURCES
-            + GOVCONTRACT_SOURCES + FDARECALL_SOURCES + BLUESKY_SOURCES
+            + GOVCONTRACT_SOURCES + FDARECALL_SOURCES + OPENFDA_SOURCES
+            + BLUESKY_SOURCES
         ):
             _get_or_create_source(session, s_name, s_type, s_url, s_handle, s_tier, smart_industry)
             src_count += 1

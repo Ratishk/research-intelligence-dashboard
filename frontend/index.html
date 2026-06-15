@@ -30,6 +30,7 @@
 
         <div class="nav-group">Smart Money</div>
         <button data-tab="smart-money"><i>◆</i>Smart Money</button>
+        <button data-tab="portfolio"><i>▤</i>Portfolio</button>
         <button data-tab="forecasts"><i>◎</i>Forecasts</button>
         <button data-tab="investor-lens"><i>◉</i>Investor Lens</button>
 
@@ -77,6 +78,7 @@
         <div class="ask-sub">Ask in plain English. Retrieval over everything we've aggregated runs
           <b>locally and free</b> — only the final answer spends tokens. Every answer is grounded in
           and cited from our own signals, so it won't make things up.</div>
+        <div class="ask-sub">Now <b>portfolio-aware</b> — ask "what should we own?" or "should we trim anything we hold?"</div>
       </div>
       <div class="ask-bar">
         <input id="ask-input" class="ask-input" autocomplete="off"
@@ -190,12 +192,26 @@
     <!-- SMART MONEY -->
     <section id="view-smart-money" class="view">
       <div class="subtabs">
+        <button class="subtab" data-sub="sm" data-subview="sm-agreement-view">⚡ Agreement</button>
         <button class="subtab active" data-sub="sm" data-subview="sm-flow-view">Flow &amp; divergence</button>
         <button class="subtab" data-sub="sm" data-subview="sm-trades-view">Recent trades</button>
         <button class="subtab" data-sub="sm" data-subview="sm-funds-view">Hedge funds (13F)</button>
+        <button class="subtab" data-sub="sm" data-subview="sm-consensus-view">Fund consensus</button>
+        <button class="subtab" data-sub="sm" data-subview="sm-iclusters-view">Insider clusters</button>
       </div>
 
-      <!-- Flow & divergence (the highest-signal view, default) -->
+      <!-- Agreement: where multiple independent smart-money sources align (default) -->
+      <div id="sm-agreement-view" class="subview">
+        <div class="sm-intro" style="margin-bottom:14px">
+          Where <b>multiple independent smart-money sources agree at once</b> — insider buys,
+          insider clusters, congress buys, institutional stakes — and especially where the crowd
+          <b>isn't bullish yet</b> (that gap is the edge). Pure cross-referencing of our signals; no predictions.
+        </div>
+        <div id="sm-agreement-meta" class="section-meta" style="margin-bottom:10px"></div>
+        <div id="sm-agreement"></div>
+      </div>
+
+      <!-- Flow & divergence -->
       <div id="sm-flow-view" class="subview active">
         <div id="sm-divergent-wrap" style="display:none">
           <div class="section-header">
@@ -237,6 +253,38 @@
         </div>
         <div id="sm-funds"></div>
       </div>
+
+      <!-- Fund consensus: what the legends are collectively invested in -->
+      <div id="sm-consensus-view" class="subview">
+        <div class="sm-intro" style="margin-bottom:14px">
+          The bets the famous funds <b>agree on</b> — names that show up across multiple managers'
+          latest 13F filings. Ranked by how many funds hold each. Updates automatically each quarter.
+        </div>
+        <div id="sm-consensus-meta" class="section-meta" style="margin-bottom:10px"></div>
+        <div id="sm-consensus"></div>
+      </div>
+
+      <!-- Insider clusters: multiple insiders buying the same stock at once -->
+      <div id="sm-iclusters-view" class="subview">
+        <div class="sm-intro" style="margin-bottom:14px">
+          Stocks where <b>MULTIPLE insiders are buying at once</b> — clustered Form 4 buys,
+          a high-conviction non-consensus signal. From OpenInsider.
+        </div>
+        <div id="sm-iclusters-meta" class="section-meta" style="margin-bottom:10px"></div>
+        <div id="sm-iclusters"></div>
+      </div>
+    </section>
+
+    <!-- PORTFOLIO -->
+    <section id="view-portfolio" class="view">
+      <div class="conv-header">
+        <div>
+          <div class="conv-title" id="pf-name">Portfolio</div>
+          <div class="conv-sub" id="pf-meta">Import the LCO fund snapshot to see holdings cross-referenced against our signals.</div>
+        </div>
+        <button id="pf-sync" class="btn-primary">Sync from LogiqGPT</button>
+      </div>
+      <div id="portfolio-content"></div>
     </section>
 
     <!-- INVESTOR LENS -->
@@ -253,6 +301,7 @@
         <span id="lens-meta" class="filter-meta"></span>
       </div>
       <div id="lens-consensus"></div>
+      <div id="lens-fundamentals"></div>
       <div id="lens-cards"></div>
     </section>
 

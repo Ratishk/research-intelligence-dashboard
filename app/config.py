@@ -107,6 +107,25 @@ class Config:
     # Storage
     DATABASE_URL = _get("DATABASE_URL", "sqlite:///./research.db")
 
+    # Portfolio — the LogiqGPT LCO fund holdings snapshot (synced daily by
+    # logiqgpt from logiqetf.com). We read this file directly; no logiqgpt
+    # runtime dependency. Override with LCO_HOLDINGS_PATH if it moves.
+    LCO_HOLDINGS_PATH = _get(
+        "LCO_HOLDINGS_PATH",
+        os.path.expanduser(
+            "~/logiq-projects/logiqgpt/data/portfolio/holdings_snapshot.json"
+        ),
+    )
+
+    # Cross-source analysis: the AI-bottleneck tracker (optical/memory competitive
+    # landscape) and the LogiqGPT research corpus (ChromaDB + SharePoint catalog).
+    BOTTLENECKS_APP_PATH = _get(
+        "BOTTLENECKS_APP_PATH", os.path.expanduser("~/bottlenecks-app")
+    )
+    LOGIQGPT_PATH = _get(
+        "LOGIQGPT_PATH", os.path.expanduser("~/logiq-projects/logiqgpt")
+    )
+
     # Model IDs
     HAIKU_MODEL = "claude-haiku-4-5-20251001"
     SONNET_MODEL = "claude-sonnet-4-6"

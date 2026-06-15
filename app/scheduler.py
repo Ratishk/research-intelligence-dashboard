@@ -78,6 +78,26 @@ def job_evaluate_theses() -> None:
             logger.info("Thesis evaluation: %s", result)
 
 
+def job_fund_consensus_morning() -> None:
+    """Warm the hedge-fund 13F consensus each morning. In the quarterly filing
+    window it force-refreshes (new quarter's data); otherwise it just ensures the
+    quarter-length cache is populated — 13F data is static between filings."""
+    from app.processing import funds
+    data = funds.get_consensus(force=funds.is_13f_filing_window())
+    logger.info("Fund consensus warmed: %d names across %d funds (%s)",
+                len(data.get("consensus", [])), data.get("funds_total", 0), data.get("quarter"))
+
+
+def job_fund_consensus_filing() -> None:
+    """During the ~3-week 13F filing window, force-refresh every few hours so new
+    filings appear same-day. Cheap no-op the rest of the quarter."""
+    from app.processing import funds
+    if funds.is_13f_filing_window():
+        data = funds.get_consensus(force=True)
+        logger.info("Fund consensus (filing window) refreshed: %d names",
+                    len(data.get("consensus", [])))
+
+
 def build_scheduler() -> BackgroundScheduler:
     tier = config.tier()
     scheduler = BackgroundScheduler(timezone="UTC")
@@ -92,4 +112,8 @@ def build_scheduler() -> BackgroundScheduler:
     scheduler.add_job(job_daily_findings, "cron", hour=11, minute=0, id="daily_findings")
     # Re-evaluate active theses against new signals every 6 hours.
     scheduler.add_job(job_evaluate_theses, "interval", hours=6, id="theses")
+    # Hedge-fund 13F consensus: warm every morning (~5am ET = 09:07 UTC), and
+    # force-refresh every 3h during the quarterly filing window for same-day catch.
+    scheduler.add_job(job_fund_consensus_morning, "cron", hour=9, minute=7, id="fund_consensus")
+    scheduler.add_job(job_fund_consensus_filing, "interval", hours=3, id="fund_consensus_filing")
     return scheduler

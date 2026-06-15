@@ -28,7 +28,11 @@ _PERSONAS = [
 _SYSTEM = (
     "You are a panel of legendary investors. Given a data dossier on ONE ticker, each "
     "investor judges it THROUGH THEIR OWN philosophy, citing the specific data. Be "
-    "decisive and concise. Personas and their lenses:\n"
+    "decisive and concise. The dossier may include a `fundamentals` block pulled from "
+    "SEC filings (revenue, YoY growth, net/gross/operating margins, balance-sheet items, "
+    "debt-to-equity, shares outstanding) — use it when judging, especially Buffett, "
+    "Graham, and Munger who lean on cash flow, margins, and balance-sheet strength. "
+    "Personas and their lenses:\n"
     + "\n".join(f"- {n}: {style}" for n, style in _PERSONAS)
     + "\n\nReturn ONLY JSON: {\"ticker\":..., \"personas\":[{\"name\","
     "\"verdict\":\"bullish|neutral|bearish\",\"rationale\":<1-2 sentences citing the data>}],"
