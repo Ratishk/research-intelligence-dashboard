@@ -13,7 +13,7 @@ import pytest
 
 from app.database import init_db, session_scope
 from app.ingestion import unusual_whales as uw
-from app.models import UWMarketTide
+from app.models import UWMarketTide, UWMaxPain
 
 
 def test_import_clean():
@@ -31,9 +31,11 @@ def test_endpoints_whitelisted():
         "/api/congress/recent-trades",
         "/api/insider/transactions",
         "/api/stock/{ticker}/greeks",
+        "/api/stock/{ticker}/max-pain",
     }
     assert used == set(uw.WHITELIST)
     assert uw._is_whitelisted("/api/stock/AAPL/greeks")
+    assert uw._is_whitelisted("/api/stock/AAPL/max-pain")
     assert not uw._is_whitelisted("/api/option-trades/made-up")
 
 
@@ -139,3 +141,80 @@ def test_upsert_offline_dedup():
         second = uw._upsert(s, UWMarketTide, h, timestamp=ts, net_volume=1.0, raw_json="{}")
     assert first is True
     assert second is False
+
+
+class _FakeResp:
+    status_code = 200
+    headers: dict = {}
+
+    def __init__(self, payload):
+        self._payload = payload
+
+    def json(self):
+        return self._payload
+
+
+class _FakeHttp:
+    """Minimal stand-in for requests.Session returning a canned max-pain payload."""
+
+    def __init__(self, payload):
+        self._payload = payload
+
+    def get(self, url, params=None, timeout=None):
+        return _FakeResp(self._payload)
+
+
+def test_max_pain_ingest_offline():
+    """ingest_max_pain parses a canned envelope and inserts one row per expiry,
+    idempotently, without any network call."""
+    import uuid
+    init_db()
+    # The date column is String(20); keep it short. A unique 4-char suffix makes
+    # the two rows genuinely new while staying within the column width.
+    suffix = uuid.uuid4().hex[:4]
+    date = f"2099-{suffix}"  # < 20 chars
+    expiry_a = f"01-17-{suffix}"
+    expiry_b = f"02-21-{suffix}"
+    payload = {
+        "date": date,
+        "data": [
+            {"expiry": expiry_a, "max_pain": "292.5", "close": "296.93"},
+            {"expiry": expiry_b, "max_pain": "300", "close": "296.93"},
+        ],
+    }
+    http = _FakeHttp(payload)
+    with session_scope() as s:
+        added = uw.ingest_max_pain(s, http, tickers=("AAPL",))
+    assert added == 2
+    with session_scope() as s:
+        rows = s.query(UWMaxPain).filter(UWMaxPain.date == date).all()
+        assert len(rows) == 2
+        r = next(r for r in rows if r.expiry == expiry_a)
+        assert r.ticker == "AAPL"
+        assert r.max_pain == 292.5
+        assert r.close == 296.93
+        assert r.pulled_at is not None
+        assert r.raw_json.strip().startswith("{")
+    # Idempotent re-run inserts nothing.
+    with session_scope() as s:
+        added2 = uw.ingest_max_pain(s, http, tickers=("AAPL",))
+    assert added2 == 0
+
+
+def test_live_max_pain_ingest(caplog):
+    """Optional live smoke: one call to max-pain ingests >=1 row; key never logged."""
+    key = os.getenv("UW_API_KEY")
+    if not key:
+        pytest.skip("UW_API_KEY not set")
+    init_db()
+    caplog.set_level(logging.DEBUG)
+    http = uw.make_session()
+    try:
+        with session_scope() as s:
+            uw.ingest_max_pain(s, http, tickers=("AAPL",))
+    finally:
+        http.close()
+    with session_scope() as s:
+        assert s.query(UWMaxPain).count() >= 1
+    joined = " ".join(r.getMessage() for r in caplog.records)
+    assert key not in joined

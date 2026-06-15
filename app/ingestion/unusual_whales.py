@@ -19,6 +19,7 @@ at https://api.unusualwhales.com/api/openapi):
     /api/congress/recent-trades       -> uw_congress
     /api/insider/transactions         -> uw_insider
     /api/stock/{ticker}/greeks        -> uw_greeks  (small watchlist set)
+    /api/stock/{ticker}/max-pain      -> uw_max_pain (small watchlist set)
 
 Every persisted row carries a content-hash natural key (``uw_hash``, UNIQUE → an
 idempotent upsert), a tz-aware UTC ``pulled_at`` and the point-in-time ``raw_json``.
@@ -44,6 +45,7 @@ from app.models import (
     UWGreeks,
     UWInsider,
     UWMarketTide,
+    UWMaxPain,
 )
 
 logger = logging.getLogger(__name__)
@@ -64,6 +66,7 @@ WHITELIST = frozenset({
     "/api/congress/recent-trades",
     "/api/insider/transactions",
     "/api/stock/{ticker}/greeks",
+    "/api/stock/{ticker}/max-pain",
 })
 
 # Tiny default watchlist for the greeks pull (keeps per-run calls small). The
@@ -364,6 +367,36 @@ def ingest_greeks(session: Session, http: requests.Session,
     return added
 
 
+def ingest_max_pain(session: Session, http: requests.Session,
+                    tickers: tuple[str, ...] = _GREEKS_WATCHLIST) -> int:
+    """Max-pain strike per ticker/expiry. One row per (ticker, date, expiry).
+
+    The gap between ``close`` and ``max_pain`` is the contrarian mean-reversion
+    signal: price tends to gravitate toward max pain into a large expiry.
+    """
+    added = 0
+    for ticker in tickers:
+        sym = ticker.strip().upper()
+        if not sym:
+            continue
+        payload = _get(http, f"/api/stock/{sym}/max-pain")
+        date = payload.get("date") if isinstance(payload, dict) else None
+        for r in _rows(payload):
+            expiry = r.get("expiry")
+            key = _hash("maxpain", sym, date, expiry)
+            if _upsert(
+                session, UWMaxPain, key,
+                ticker=sym,
+                date=str(date or "")[:20],
+                expiry=str(expiry or "")[:20],
+                max_pain=_to_float(r.get("max_pain")),
+                close=_to_float(r.get("close")),
+                raw_json=json.dumps(r),
+            ):
+                added += 1
+    return added
+
+
 def ingest_all(session: Session) -> int:
     """Run every UW ingester once. Returns total new rows across all uw_* tables.
 
@@ -384,6 +417,7 @@ def ingest_all(session: Session) -> int:
         ("congress", ingest_congress),
         ("insider", ingest_insider),
         ("greeks", ingest_greeks),
+        ("max_pain", ingest_max_pain),
     )
     for name, fn in ingesters:
         try:

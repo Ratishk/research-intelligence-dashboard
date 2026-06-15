@@ -76,12 +76,19 @@ _MIGRATIONS = [
         "date VARCHAR(20), expiry VARCHAR(20), strike VARCHAR(20), "
         "call_gamma REAL, put_gamma REAL, raw_json TEXT, pulled_at DATETIME)"
     ),
+    (
+        "CREATE TABLE IF NOT EXISTS uw_max_pain ("
+        "id INTEGER PRIMARY KEY, uw_hash VARCHAR(64) UNIQUE, ticker VARCHAR(20), "
+        "date VARCHAR(20), expiry VARCHAR(20), max_pain REAL, close REAL, "
+        "raw_json TEXT, pulled_at DATETIME)"
+    ),
     "CREATE INDEX IF NOT EXISTS ix_uw_flow_alerts_uw_hash ON uw_flow_alerts (uw_hash)",
     "CREATE INDEX IF NOT EXISTS ix_uw_darkpool_uw_hash ON uw_darkpool (uw_hash)",
     "CREATE INDEX IF NOT EXISTS ix_uw_congress_uw_hash ON uw_congress (uw_hash)",
     "CREATE INDEX IF NOT EXISTS ix_uw_insider_uw_hash ON uw_insider (uw_hash)",
     "CREATE INDEX IF NOT EXISTS ix_uw_market_tide_uw_hash ON uw_market_tide (uw_hash)",
     "CREATE INDEX IF NOT EXISTS ix_uw_greeks_uw_hash ON uw_greeks (uw_hash)",
+    "CREATE INDEX IF NOT EXISTS ix_uw_max_pain_uw_hash ON uw_max_pain (uw_hash)",
     # Drop the orphaned FTS5 table replaced by sig_fts_v2 (see processing/rag.py).
     # DROP TABLE on an fts5 virtual table also removes its shadow tables
     # (signal_fts_data/_idx/_content/_docsize/_config). IF EXISTS keeps it idempotent.

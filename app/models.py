@@ -419,3 +419,23 @@ class UWGreeks(Base):
     put_gamma: Mapped[float | None] = mapped_column(Float, nullable=True)
     raw_json: Mapped[str] = mapped_column(Text, default="")
     pulled_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, index=True)
+
+
+class UWMaxPain(Base):
+    """A UW max-pain row per ticker/expiry (/api/stock/{ticker}/max-pain).
+
+    Max pain is the strike at which the most option value expires worthless; price
+    tends to gravitate toward it into a large expiry, so the gap between ``close``
+    and ``max_pain`` is a mean-reversion / contrarian signal for the Idea Desk.
+    """
+    __tablename__ = "uw_max_pain"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    uw_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    ticker: Mapped[str] = mapped_column(String(20), index=True, default="")
+    date: Mapped[str] = mapped_column(String(20), default="", index=True)
+    expiry: Mapped[str] = mapped_column(String(20), default="", index=True)
+    max_pain: Mapped[float | None] = mapped_column(Float, nullable=True)
+    close: Mapped[float | None] = mapped_column(Float, nullable=True)
+    raw_json: Mapped[str] = mapped_column(Text, default="")
+    pulled_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, index=True)
