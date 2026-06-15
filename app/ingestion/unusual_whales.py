@@ -245,8 +245,12 @@ def ingest_market_tide(session: Session, http: requests.Session) -> int:
     added = 0
     for r in rows:
         ts = r.get("timestamp")
+        # Key on the timestamp, but fall back to the full row when the time field
+        # is missing/renamed — otherwise every tz-less row hashes to the same
+        # uw_hash and all but the first collapse as duplicate (whole series lost).
+        key = _hash("tide", ts) if ts else _hash("tide", json.dumps(r, sort_keys=True))
         if _upsert(
-            session, UWMarketTide, _hash("tide", ts),
+            session, UWMarketTide, key,
             timestamp=str(ts or ""),
             net_call_premium=_to_float(r.get("net_call_premium")),
             net_put_premium=_to_float(r.get("net_put_premium")),

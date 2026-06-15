@@ -24,11 +24,15 @@ _refresh_last = [0.0]
 
 
 def _refresh_throttle() -> None:
+    # Reserve the next slot under the lock, then sleep OUTSIDE it. Sleeping while
+    # holding _refresh_lock would serialize the whole refresh pool (only one
+    # thread past the throttle at a time), defeating the ThreadPoolExecutor.
     with _refresh_lock:
-        wait = _REFRESH_MIN_INTERVAL - (time.monotonic() - _refresh_last[0])
-        if wait > 0:
-            time.sleep(wait)
-        _refresh_last[0] = time.monotonic()
+        now = time.monotonic()
+        wait = _REFRESH_MIN_INTERVAL - (now - _refresh_last[0])
+        _refresh_last[0] = now + max(0.0, wait)
+    if wait > 0:
+        time.sleep(wait)
 
 _ST_TIMEOUT = 8
 # Browser-like UA — StockTwits throttles generic clients more aggressively.
