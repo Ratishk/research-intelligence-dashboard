@@ -119,20 +119,14 @@ def _local(tag: str) -> str:
     return tag.rsplit("}", 1)[-1]
 
 
-# Cross-thread rate limiter — EDGAR fair-access is 10 req/s. We cap the *start*
-# rate of all requests (across the consensus thread pool) to ~9/s; network waits
-# still overlap, so parallelism speeds things up while staying within EDGAR limits.
-_rate_lock = threading.Lock()
-_last_req = [0.0]
-_MIN_INTERVAL = 0.11
+# Cross-thread rate limiter — EDGAR fair-access is 10 req/s. We delegate to the
+# shared per-host token bucket (app.ingestion.sec_throttle) so the consensus thread
+# pool AND the SEC ingesters cap their *aggregate* start rate to ~9/s on data.sec.gov.
+from app.ingestion import sec_throttle
 
 
 def _throttle() -> None:
-    with _rate_lock:
-        wait = _MIN_INTERVAL - (time.monotonic() - _last_req[0])
-        if wait > 0:
-            time.sleep(wait)
-        _last_req[0] = time.monotonic()
+    sec_throttle.acquire()
 
 
 def _get_json(url: str):
@@ -459,6 +453,14 @@ def get_consensus(top_per_fund: int = 25, min_funds: int = 2, force: bool = Fals
     now = time.monotonic()
     if not force and _consensus_cache and now - _consensus_cache[0] < _CONSENSUS_TTL:
         return _consensus_cache[1]
+    # Cold start: warm the in-memory cache from disk before the expensive scrape,
+    # so a restart doesn't re-fetch hundreds of 13F filings.
+    if not force and _consensus_cache is None:
+        from app import cache as _disk_cache
+        disk = _disk_cache.get("fund_consensus")
+        if disk is not None:
+            _consensus_cache = (now, disk)
+            return disk
 
     # Fetch every fund's latest holdings in parallel (network-bound; throttled to
     # ~9 req/s globally so we stay within EDGAR's 10/s limit).
@@ -522,6 +524,10 @@ def get_consensus(top_per_fund: int = 25, min_funds: int = 2, force: bool = Fals
         "computing": False,
     }
     _consensus_cache = (now, result)
+    # Persist to disk so a restart can load-from-disk instead of cold-rebuilding.
+    if result.get("consensus"):
+        from app import cache as _disk_cache
+        _disk_cache.set("fund_consensus", result, ttl=_CONSENSUS_TTL)
     return result
 
 
@@ -557,9 +563,18 @@ def get_consensus_cached() -> dict:
     """Non-blocking: return the cached consensus immediately. If it's cold or
     stale, kick a background build and return a 'computing' placeholder (or the
     stale data flagged) so the request never blocks for minutes."""
+    global _consensus_cache
     now = time.monotonic()
     if _consensus_cache and now - _consensus_cache[0] < _CONSENSUS_TTL:
         return _consensus_cache[1]
+    # Cold start: serve the disk cache immediately if present (avoids the minutes-long
+    # cold rebuild after a restart) and warm the in-memory cache from it.
+    if _consensus_cache is None:
+        from app import cache as _disk_cache
+        disk = _disk_cache.get("fund_consensus")
+        if disk is not None:
+            _consensus_cache = (now, disk)
+            return disk
     warm_consensus(force=False)
     if _consensus_cache:  # serve stale while refreshing
         return {**_consensus_cache[1], "computing": True}

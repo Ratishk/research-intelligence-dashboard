@@ -30,7 +30,8 @@ from datetime import datetime, timezone
 
 import requests
 
-from app.ingestion.common import upsert_item
+from app.ingestion import sec_throttle
+from app.ingestion.common import new_since_cursor, stamp_crawled, upsert_item
 from app.ingestion.form4 import _load_cik_map
 from app.models import Direction, Signal, Source, SourceType
 
@@ -80,6 +81,7 @@ def _fetch_raw_xml(cik: int, accession: str, primary_doc: str) -> ET.Element | N
     raw_doc = primary_doc.split("/")[-1] if primary_doc else "primary_doc.xml"
     url = f"https://www.sec.gov/Archives/edgar/data/{cik}/{acc_nodash}/{raw_doc}"
     try:
+        sec_throttle.acquire()
         resp = requests.get(url, headers=_HEADERS, timeout=_TIMEOUT)
         resp.raise_for_status()
         return ET.fromstring(resp.text)
@@ -119,6 +121,7 @@ def ingest_source(session, source: Source) -> int:
     if cik is None:
         return 0
     try:
+        sec_throttle.acquire()
         resp = requests.get(_SUBMISSIONS.format(cik=cik), headers=_HEADERS, timeout=_TIMEOUT)
         resp.raise_for_status()
         recent = resp.json().get("filings", {}).get("recent", {})
@@ -131,7 +134,9 @@ def ingest_source(session, source: Source) -> int:
     accs = recent.get("accessionNumber", [])
     docs = recent.get("primaryDocument", [])
 
-    idxs = [i for i, f in enumerate(forms) if f in _FORMS][:MAX_FILINGS]
+    fresh = new_since_cursor(source, dates)
+    idxs = [i for i, f in enumerate(forms) if f in _FORMS and i in fresh][:MAX_FILINGS]
+    stamp_crawled(source)
     added = 0
     for i in idxs:
         acc = accs[i].replace("-", "")

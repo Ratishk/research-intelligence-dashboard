@@ -164,6 +164,13 @@ def get_macro() -> dict:
     global _cache, _cache_at
     if _cache is not None and (time.monotonic() - _cache_at) < _CACHE_TTL:
         return _cache
+    # Cold start: warm from disk before re-fetching 13 throttled FRED/GDELT series.
+    if _cache is None:
+        from app import cache as _disk_cache
+        disk = _disk_cache.get("macro")
+        if disk is not None:
+            _cache, _cache_at = disk, time.monotonic()
+            return disk
 
     # Fetch all series concurrently — sequential would be 13×timeout on a
     # throttled host; parallel keeps the whole call near a single timeout.
@@ -196,4 +203,7 @@ def get_macro() -> dict:
         "updated": None,
     }
     _cache, _cache_at = result, time.monotonic()
+    if result.get("indicators"):
+        from app import cache as _disk_cache
+        _disk_cache.set("macro", result, ttl=_CACHE_TTL)
     return result

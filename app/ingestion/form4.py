@@ -18,7 +18,8 @@ from datetime import datetime, timezone
 
 import requests
 
-from app.ingestion.common import upsert_item
+from app.ingestion import sec_throttle
+from app.ingestion.common import new_since_cursor, stamp_crawled, upsert_item
 from app.models import Direction, Signal, SignalType, Source, SourceType
 
 logger = logging.getLogger(__name__)
@@ -43,6 +44,7 @@ def _load_cik_map() -> dict[str, int]:
     if _cik_map is not None:
         return _cik_map
     try:
+        sec_throttle.acquire()
         resp = requests.get(_TICKERS_URL, headers=_HEADERS, timeout=_TIMEOUT)
         resp.raise_for_status()
         data = resp.json()
@@ -97,6 +99,7 @@ def _fetch_form4_xml(cik: int, accession: str, primary_doc: str) -> ET.Element |
     raw_doc = primary_doc.split("/")[-1]
     url = f"https://www.sec.gov/Archives/edgar/data/{cik}/{acc_nodash}/{raw_doc}"
     try:
+        sec_throttle.acquire()
         resp = requests.get(url, headers=_HEADERS, timeout=_TIMEOUT)
         resp.raise_for_status()
         return ET.fromstring(resp.text), url
@@ -114,6 +117,7 @@ def ingest_source(session, source: Source) -> int:
         return 0
 
     try:
+        sec_throttle.acquire()
         resp = requests.get(_SUBMISSIONS.format(cik=cik), headers=_HEADERS, timeout=_TIMEOUT)
         resp.raise_for_status()
         recent = resp.json().get("filings", {}).get("recent", {})
@@ -126,7 +130,10 @@ def ingest_source(session, source: Source) -> int:
     accs = recent.get("accessionNumber", [])
     docs = recent.get("primaryDocument", [])
 
-    form4_idx = [i for i, f in enumerate(forms) if f == "4"][:MAX_FILINGS]
+    # Only walk filings filed since our last crawl of this source (work dedup).
+    fresh = new_since_cursor(source, dates)
+    form4_idx = [i for i, f in enumerate(forms) if f == "4" and i in fresh][:MAX_FILINGS]
+    stamp_crawled(source)
     added = 0
     for i in form4_idx:
         accession = accs[i]

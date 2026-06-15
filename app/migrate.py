@@ -82,6 +82,10 @@ _MIGRATIONS = [
     "CREATE INDEX IF NOT EXISTS ix_uw_insider_uw_hash ON uw_insider (uw_hash)",
     "CREATE INDEX IF NOT EXISTS ix_uw_market_tide_uw_hash ON uw_market_tide (uw_hash)",
     "CREATE INDEX IF NOT EXISTS ix_uw_greeks_uw_hash ON uw_greeks (uw_hash)",
+    # Drop the orphaned FTS5 table replaced by sig_fts_v2 (see processing/rag.py).
+    # DROP TABLE on an fts5 virtual table also removes its shadow tables
+    # (signal_fts_data/_idx/_content/_docsize/_config). IF EXISTS keeps it idempotent.
+    "DROP TABLE IF EXISTS signal_fts",
 ]
 
 

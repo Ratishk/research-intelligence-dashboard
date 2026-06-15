@@ -15,7 +15,8 @@ from datetime import datetime, timezone
 
 import requests
 
-from app.ingestion.common import upsert_item
+from app.ingestion import sec_throttle
+from app.ingestion.common import new_since_cursor, stamp_crawled, upsert_item
 from app.ingestion.form4 import _load_cik_map
 from app.models import Direction, Signal, SignalType, Source
 
@@ -49,6 +50,7 @@ def ingest_source(session, source: Source) -> int:
         return 0
 
     try:
+        sec_throttle.acquire()
         resp = requests.get(_SUBMISSIONS.format(cik=cik), headers=_HEADERS, timeout=_TIMEOUT)
         resp.raise_for_status()
         recent = resp.json().get("filings", {}).get("recent", {})
@@ -60,7 +62,11 @@ def ingest_source(session, source: Source) -> int:
     dates = recent.get("filingDate", [])
     accs = recent.get("accessionNumber", [])
 
-    dilution_idx = [i for i, f in enumerate(forms) if f in _DILUTION_FORMS][:MAX_FILINGS]
+    fresh = new_since_cursor(source, dates)
+    dilution_idx = [
+        i for i, f in enumerate(forms) if f in _DILUTION_FORMS and i in fresh
+    ][:MAX_FILINGS]
+    stamp_crawled(source)
     added = 0
     for i in dilution_idx:
         form = forms[i]

@@ -1,6 +1,7 @@
 """Shared ingestion helpers: URL normalization, dedupe hashing, item upsert."""
 from __future__ import annotations
 
+import datetime as _dt
 import hashlib
 from datetime import datetime, timezone
 from urllib.parse import urlparse, urlunparse
@@ -51,6 +52,37 @@ def content_hash(url: str, fallback_text: str = "") -> str:
     """Stable dedupe key. Uses normalized URL when present, else text digest."""
     basis = normalize_url(url) or fallback_text.strip()
     return hashlib.sha256(basis.encode("utf-8", "ignore")).hexdigest()
+
+
+def new_since_cursor(source: Source, filing_dates: list[str]) -> set[int]:
+    """Indices of filings filed on/after the source's last_crawled cursor (work dedup).
+
+    SEC submission-history walks re-list ALL recent filings every pass. Once a source
+    has been crawled, only filings filed on or after the cursor date can be new (one
+    day of slack, since filingDate is date-granular and last_crawled is a timestamp).
+    First crawl (no cursor) processes everything. Always pair with stamp_crawled() so
+    the cursor advances even when a pass finds nothing new.
+    """
+    n = len(filing_dates)
+    cursor = source.last_crawled
+    if cursor is None:
+        return set(range(n))
+    cutoff = (cursor.date() - _dt.timedelta(days=1))
+    keep: set[int] = set()
+    for i, ds in enumerate(filing_dates):
+        try:
+            fd = _dt.date.fromisoformat((ds or "")[:10])
+        except (ValueError, TypeError):
+            keep.add(i)  # unparseable date -> don't silently skip it
+            continue
+        if fd >= cutoff:
+            keep.add(i)
+    return keep
+
+
+def stamp_crawled(source: Source) -> None:
+    """Advance the source's last_crawled cursor to now (call once per crawl)."""
+    source.last_crawled = datetime.now(timezone.utc)
 
 
 def upsert_item(

@@ -17,7 +17,8 @@ from datetime import datetime, timezone
 
 import requests
 
-from app.ingestion.common import upsert_item
+from app.ingestion import sec_throttle
+from app.ingestion.common import new_since_cursor, stamp_crawled, upsert_item
 from app.ingestion.form4 import _load_cik_map  # reuse cached ticker->CIK map
 from app.models import Direction, Signal, SignalType, Source, SourceType
 
@@ -50,6 +51,7 @@ def _parse_stake(cik: int, accession: str, primary_doc: str) -> dict:
     url = f"https://www.sec.gov/Archives/edgar/data/{cik}/{acc}/primary_doc.xml"
     out = {"filer": None, "pct": None, "type": None}
     try:
+        sec_throttle.acquire()
         resp = requests.get(url, headers=_HEADERS, timeout=_TIMEOUT)
         resp.raise_for_status()
         tree = ET.fromstring(resp.text)
@@ -57,7 +59,7 @@ def _parse_stake(cik: int, accession: str, primary_doc: str) -> dict:
         out["pct"] = _find_text(tree, "classPercent")
         out["type"] = _find_text(tree, "typeOfReportingPerson")
     except Exception:
-        pass
+        logger.debug("13D/G stake parse skipped for CIK %s", cik, exc_info=True)
     return out
 
 
@@ -70,6 +72,7 @@ def ingest_source(session, source: Source) -> int:
         return 0
 
     try:
+        sec_throttle.acquire()
         resp = requests.get(_SUBMISSIONS.format(cik=cik), headers=_HEADERS, timeout=_TIMEOUT)
         resp.raise_for_status()
         recent = resp.json().get("filings", {}).get("recent", {})
@@ -82,7 +85,9 @@ def ingest_source(session, source: Source) -> int:
     accs = recent.get("accessionNumber", [])
     docs = recent.get("primaryDocument", [])
 
-    idxs = [i for i, f in enumerate(forms) if f in _ALL_FORMS][:MAX_FILINGS]
+    fresh = new_since_cursor(source, dates)
+    idxs = [i for i, f in enumerate(forms) if f in _ALL_FORMS and i in fresh][:MAX_FILINGS]
+    stamp_crawled(source)
     added = 0
     for i in idxs:
         form = forms[i]

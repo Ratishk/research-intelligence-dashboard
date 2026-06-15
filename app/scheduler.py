@@ -101,19 +101,23 @@ def job_fund_consensus_filing() -> None:
 def build_scheduler() -> BackgroundScheduler:
     tier = config.tier()
     scheduler = BackgroundScheduler(timezone="UTC")
-    scheduler.add_job(job_ingest, "interval", hours=1, id="ingest", max_instances=1)
-    scheduler.add_job(job_classify, "interval", hours=1, id="classify", max_instances=1)
-    scheduler.add_job(job_refresh_tickers, "interval", hours=6, id="tickers")
+    # max_instances=1 + coalesce=True on EVERY job: never overlap a still-running
+    # pass with the next fire, and collapse missed runs (e.g. after a sleep/restart)
+    # into a single catch-up instead of a backlog burst.
+    defaults = {"max_instances": 1, "coalesce": True}
+    scheduler.add_job(job_ingest, "interval", hours=1, id="ingest", **defaults)
+    scheduler.add_job(job_classify, "interval", hours=1, id="classify", **defaults)
+    scheduler.add_job(job_refresh_tickers, "interval", hours=6, id="tickers", **defaults)
     scheduler.add_job(
-        job_discovery, "interval", days=tier.discovery_interval_days, id="discovery"
+        job_discovery, "interval", days=tier.discovery_interval_days, id="discovery", **defaults
     )
-    scheduler.add_job(job_shift_alerts, "interval", hours=4, id="shift_alerts")
+    scheduler.add_job(job_shift_alerts, "interval", hours=4, id="shift_alerts", **defaults)
     # Daily DeepResearch findings at 11:00 UTC (~7am ET, pre-market).
-    scheduler.add_job(job_daily_findings, "cron", hour=11, minute=0, id="daily_findings")
+    scheduler.add_job(job_daily_findings, "cron", hour=11, minute=0, id="daily_findings", **defaults)
     # Re-evaluate active theses against new signals every 6 hours.
-    scheduler.add_job(job_evaluate_theses, "interval", hours=6, id="theses")
+    scheduler.add_job(job_evaluate_theses, "interval", hours=6, id="theses", **defaults)
     # Hedge-fund 13F consensus: warm every morning (~5am ET = 09:07 UTC), and
     # force-refresh every 3h during the quarterly filing window for same-day catch.
-    scheduler.add_job(job_fund_consensus_morning, "cron", hour=9, minute=7, id="fund_consensus")
-    scheduler.add_job(job_fund_consensus_filing, "interval", hours=3, id="fund_consensus_filing")
+    scheduler.add_job(job_fund_consensus_morning, "cron", hour=9, minute=7, id="fund_consensus", **defaults)
+    scheduler.add_job(job_fund_consensus_filing, "interval", hours=3, id="fund_consensus_filing", **defaults)
     return scheduler
