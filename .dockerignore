@@ -1,0 +1,20 @@
+# Keep the build context small and never ship local state or secrets.
+.venv/
+venv/
+.git/
+.gitignore
+research.db
+*.sqlite
+*.sqlite3
+__pycache__/
+*.pyc
+.env
+.env.*
+!.env.example
+.DS_Store
+.codegraph/
+.claude/
+docs/
+*.md
+!README.md
+/tmp/
