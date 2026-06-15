@@ -33,15 +33,30 @@ class TierSettings:
     discovery_interval_days: int
     # Max industries actively ingested (None = all).
     max_active_industries: int | None
+    # Hard ceiling on items sent to the LLM classifier per day (cost cap).
+    classify_cap_per_day: int = 100000
+    # When True, items mentioning no tracked entity skip the LLM entirely (free).
+    prefilter: bool = False
 
 
 _TIERS: dict[str, TierSettings] = {
+    # ~$25/mo target: heuristic pre-filter, hard daily classify cap, 1 X poll/day.
+    "budget": TierSettings(
+        sonnet_relevance_threshold=0.78,
+        x_polls_per_day=1,
+        x_accounts_per_query=15,
+        discovery_interval_days=30,
+        max_active_industries=6,
+        classify_cap_per_day=250,
+        prefilter=True,
+    ),
     "lean": TierSettings(
         sonnet_relevance_threshold=0.7,
         x_polls_per_day=1,
         x_accounts_per_query=10,
         discovery_interval_days=14,
         max_active_industries=8,
+        classify_cap_per_day=800,
     ),
     "standard": TierSettings(
         sonnet_relevance_threshold=0.5,
@@ -67,6 +82,10 @@ class Config:
     ANTHROPIC_API_KEY = _get("ANTHROPIC_API_KEY")
     PERPLEXITY_API_KEY = _get("PERPLEXITY_API_KEY")
     GOOGLE_API_KEY = _get("GOOGLE_API_KEY")
+    # X / Twitter API v2 (Bearer = app-only read access)
+    X_BEARER_TOKEN = _get("X_BEARER_TOKEN")
+    X_CONSUMER_KEY = _get("X_CONSUMER_KEY")
+    X_CONSUMER_SECRET = _get("X_CONSUMER_SECRET")
 
     # Reddit
     REDDIT_CLIENT_ID = _get("REDDIT_CLIENT_ID")
@@ -87,6 +106,25 @@ class Config:
 
     # Storage
     DATABASE_URL = _get("DATABASE_URL", "sqlite:///./research.db")
+
+    # Portfolio — the LogiqGPT LCO fund holdings snapshot (synced daily by
+    # logiqgpt from logiqetf.com). We read this file directly; no logiqgpt
+    # runtime dependency. Override with LCO_HOLDINGS_PATH if it moves.
+    LCO_HOLDINGS_PATH = _get(
+        "LCO_HOLDINGS_PATH",
+        os.path.expanduser(
+            "~/logiq-projects/logiqgpt/data/portfolio/holdings_snapshot.json"
+        ),
+    )
+
+    # Cross-source analysis: the AI-bottleneck tracker (optical/memory competitive
+    # landscape) and the LogiqGPT research corpus (ChromaDB + SharePoint catalog).
+    BOTTLENECKS_APP_PATH = _get(
+        "BOTTLENECKS_APP_PATH", os.path.expanduser("~/bottlenecks-app")
+    )
+    LOGIQGPT_PATH = _get(
+        "LOGIQGPT_PATH", os.path.expanduser("~/logiq-projects/logiqgpt")
+    )
 
     # Model IDs
     HAIKU_MODEL = "claude-haiku-4-5-20251001"

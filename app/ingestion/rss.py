@@ -76,7 +76,9 @@ def ingest_source(session, source: Source) -> int:
 
 def ingest_all(session) -> int:
     """Ingest every active RSS/forum/arxiv source via direct feedparser."""
-    feed_types = {SourceType.rss.value, SourceType.forum.value, SourceType.arxiv.value}
+    feed_types = {
+        SourceType.rss.value, SourceType.forum.value, SourceType.arxiv.value,
+    }
     sources = [
         s
         for s in session.query(Source).filter(Source.active.is_(True)).all()

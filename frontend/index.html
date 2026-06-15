@@ -3,45 +3,504 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Research Intelligence Dashboard</title>
+  <title>Research Intelligence</title>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/styles.css" />
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 </head>
 <body>
-  <header>
-    <h1>Research Intelligence</h1>
-    <div class="header-actions">
-      <span id="tier-badge" class="badge tier1">tier: …</span>
-      <button id="ingest-btn">Run ingestion</button>
-    </div>
-  </header>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="brand">
+        <span class="logo">RI</span>
+        <div>
+          <div class="brand-name">Research Intel</div>
+          <span id="tier-badge" class="badge-tier">lean</span>
+        </div>
+      </div>
 
-  <nav id="tabs">
-    <button data-tab="feed" class="active">Feed</button>
-    <button data-tab="youtube">YouTube</button>
-    <button data-tab="twitter">Twitter/X</button>
-    <button data-tab="blogs">Blogs &amp; Forums</button>
-    <button data-tab="signals">Signals</button>
-    <button data-tab="watchlists">Watchlists</button>
-    <button data-tab="trends">Trends</button>
-    <button data-tab="industries">Industries</button>
-    <button data-tab="sources">Sources</button>
-  </nav>
+      <nav id="tabs">
+        <div class="nav-group">Intelligence</div>
+        <button data-tab="conviction" class="active"><i>★</i>Daily Findings</button>
+        <button data-tab="ask"><i>⌕</i>Ask</button>
+        <button data-tab="home"><i>◰</i>Home</button>
+        <button data-tab="theses"><i>⚑</i>Theses</button>
+        <button data-tab="guide"><i>?</i>Guide</button>
 
-  <main>
-    <section id="view-feed" class="view active"></section>
-    <section id="view-youtube" class="view"></section>
-    <section id="view-twitter" class="view"></section>
-    <section id="view-blogs" class="view"></section>
-    <section id="view-signals" class="view"></section>
-    <section id="view-watchlists" class="view"></section>
+        <div class="nav-group">Smart Money</div>
+        <button data-tab="smart-money"><i>◆</i>Smart Money</button>
+        <button data-tab="portfolio"><i>▤</i>Portfolio</button>
+        <button data-tab="forecasts"><i>◎</i>Forecasts</button>
+        <button data-tab="investor-lens"><i>◉</i>Investor Lens</button>
+
+        <div class="nav-group">Markets</div>
+        <button data-tab="macro"><i>◷</i>Macro &amp; Pulse</button>
+        <button data-tab="signals"><i>↯</i>Signals</button>
+        <button data-tab="theme-shifts"><i>≈</i>Theme Shifts</button>
+        <button data-tab="trends"><i>▦</i>Trends</button>
+
+        <div class="nav-group">Data</div>
+        <button data-tab="feed"><i>≡</i>Feed</button>
+        <button data-tab="watchlists"><i>★</i>Watchlists</button>
+        <button data-tab="industries"><i>◫</i>Industries</button>
+        <button data-tab="sources"><i>⌗</i>Sources</button>
+      </nav>
+
+      <div class="sidebar-foot">
+        <div id="ingest-status" class="ingest-status"></div>
+        <button id="ingest-btn" class="btn-primary">Run ingestion</button>
+      </div>
+    </aside>
+
+    <main>
+
+    <!-- DAILY FINDINGS (Conviction) -->
+    <section id="view-conviction" class="view active">
+      <div class="conv-header">
+        <div>
+          <div class="conv-title">Daily Findings <span id="conv-date" class="conv-date"></span></div>
+          <div class="conv-sub">A two-pass DeepResearch read of everything we track — signals, insider/politician/
+            institutional trades, dilution filings, unusual volume, catalysts, themes, forecasts, macro —
+            distilled into the day's 1–5 most actionable, non-consensus ideas. Auto-runs each morning.</div>
+        </div>
+        <button id="conv-generate" class="btn-primary">Regenerate</button>
+      </div>
+      <div id="conv-history" class="conv-history"></div>
+      <div id="conv-packet" class="conv-packet"></div>
+      <div id="conv-cards"></div>
+    </section>
+
+    <!-- ASK (local RAG) -->
+    <section id="view-ask" class="view">
+      <div class="ask-head">
+        <div class="ask-title">Ask the data</div>
+        <div class="ask-sub">Ask in plain English. Retrieval over everything we've aggregated runs
+          <b>locally and free</b> — only the final answer spends tokens. Every answer is grounded in
+          and cited from our own signals, so it won't make things up.</div>
+        <div class="ask-sub">Now <b>portfolio-aware</b> — ask "what should we own?" or "should we trim anything we hold?"</div>
+      </div>
+      <div class="ask-bar">
+        <input id="ask-input" class="ask-input" autocomplete="off"
+          placeholder="e.g. Which tickers are insiders selling and is it bearish?" />
+        <button id="ask-go" class="btn-primary">Ask</button>
+      </div>
+      <div id="ask-examples" class="ask-examples">
+        <button class="ask-chip">Which tickers are insiders selling and is it bearish?</button>
+        <button class="ask-chip">What's the most contrarian signal this week?</button>
+        <button class="ask-chip">How does NVDA look right now?</button>
+        <button class="ask-chip">Where is smart money rotating?</button>
+      </div>
+      <div id="ask-answer" class="ask-answer"></div>
+      <div id="ask-sources" class="ask-sources"></div>
+    </section>
+
+    <!-- THESES -->
+    <section id="view-theses" class="view">
+      <div class="sm-intro">
+        Track persistent investment theses and watch them play out. Every new signal is
+        classified as <b>confirming</b> or <b>contradicting</b> your active calls — so you
+        stop re-deriving the same view daily and start monitoring whether your bets are working.
+      </div>
+      <div class="thesis-form">
+        <input id="th-title" class="filter-input" placeholder="Thesis (e.g. AI capex peaks H2 → short AVGO)" style="flex:1;min-width:240px" />
+        <select id="th-direction" class="filter-select">
+          <option value="long">Long</option>
+          <option value="short">Short</option>
+          <option value="watch">Watch</option>
+        </select>
+        <input id="th-tickers" class="filter-input" placeholder="Tickers (NVDA, AVGO)" style="width:160px" />
+        <input id="th-rationale" class="filter-input" placeholder="Rationale (optional)" style="flex:1;min-width:200px" />
+        <button id="th-add" class="btn-primary">Add thesis</button>
+        <button id="th-eval" class="btn-sm">Evaluate now</button>
+      </div>
+      <div id="theses-list"></div>
+    </section>
+
+    <!-- GUIDE -->
+    <section id="view-guide" class="view">
+      <div id="guide-body"></div>
+    </section>
+
+    <!-- HOME -->
+    <section id="view-home" class="view">
+      <div id="home-stats" class="stat-row"></div>
+      <div class="home-grid">
+        <div class="home-col">
+          <div class="home-card highlight">
+            <div class="section-header">
+              <span class="section-label">⚡ Non-consensus signals</span>
+              <a class="card-link" data-goto="signals" data-sort="alpha">View all →</a>
+            </div>
+            <div id="home-noncon"></div>
+          </div>
+          <div class="home-card">
+            <div class="section-header">
+              <span class="section-label">🏛️ Smart money trades</span>
+              <a class="card-link" data-goto="smart-money">View all →</a>
+            </div>
+            <div id="home-smartmoney"></div>
+          </div>
+          <div class="home-card">
+            <div class="section-header">
+              <span class="section-label">Top signals</span>
+              <a class="card-link" data-goto="signals">View all →</a>
+            </div>
+            <div id="home-signals"></div>
+          </div>
+        </div>
+        <div class="home-col">
+          <div class="home-card">
+            <div class="section-header">
+              <span class="section-label">🔮 Prediction markets</span>
+              <a class="card-link" data-goto="forecasts">View all →</a>
+            </div>
+            <div id="home-predictions"></div>
+          </div>
+          <div class="home-card">
+            <div class="section-header">
+              <span class="section-label">Industry pulse</span>
+              <a class="card-link" data-goto="industries">View all →</a>
+            </div>
+            <div id="home-industries"></div>
+          </div>
+          <div class="home-card">
+            <div class="section-header">
+              <span class="section-label">Theme shifts (30d)</span>
+              <a class="card-link" data-goto="theme-shifts">View all →</a>
+            </div>
+            <div id="home-themes"></div>
+          </div>
+          <div class="home-card">
+            <div class="section-header">
+              <span class="section-label">Watchlist movers</span>
+              <a class="card-link" data-goto="watchlists">View all →</a>
+            </div>
+            <div id="home-movers"></div>
+          </div>
+        </div>
+      </div>
+      <div class="ai-brief-wrap" style="margin-top:16px">
+        <div class="section-header">
+          <span class="section-label">AI synthesis</span>
+          <button id="synthesize-btn" class="btn-sm">Generate</button>
+        </div>
+        <div id="ai-synthesis" class="ai-text"></div>
+      </div>
+    </section>
+
+    <!-- SMART MONEY -->
+    <section id="view-smart-money" class="view">
+      <div class="subtabs">
+        <button class="subtab" data-sub="sm" data-subview="sm-agreement-view">⚡ Agreement</button>
+        <button class="subtab active" data-sub="sm" data-subview="sm-flow-view">Flow &amp; divergence</button>
+        <button class="subtab" data-sub="sm" data-subview="sm-trades-view">Recent trades</button>
+        <button class="subtab" data-sub="sm" data-subview="sm-funds-view">Hedge funds (13F)</button>
+        <button class="subtab" data-sub="sm" data-subview="sm-consensus-view">Fund consensus</button>
+        <button class="subtab" data-sub="sm" data-subview="sm-iclusters-view">Insider clusters</button>
+      </div>
+
+      <!-- Agreement: where multiple independent smart-money sources align (default) -->
+      <div id="sm-agreement-view" class="subview">
+        <div class="sm-intro" style="margin-bottom:14px">
+          Where <b>multiple independent smart-money sources agree at once</b> — insider buys,
+          insider clusters, congress buys, institutional stakes — and especially where the crowd
+          <b>isn't bullish yet</b> (that gap is the edge). Pure cross-referencing of our signals; no predictions.
+        </div>
+        <div id="sm-agreement-meta" class="section-meta" style="margin-bottom:10px"></div>
+        <div id="sm-agreement"></div>
+      </div>
+
+      <!-- Flow & divergence -->
+      <div id="sm-flow-view" class="subview active">
+        <div id="sm-divergent-wrap" style="display:none">
+          <div class="section-header">
+            <span class="section-label">⚡ Smart money vs consensus</span>
+            <span class="section-meta">Highest-conviction non-consensus setups</span>
+          </div>
+          <div id="sm-divergent"></div>
+        </div>
+        <div class="section-header" style="margin-top:14px">
+          <span class="section-label">Per-ticker flow</span>
+          <span class="section-meta">14d · insider + politician + institutional buys/sells vs consensus</span>
+        </div>
+        <div id="sm-flow"></div>
+      </div>
+
+      <!-- Recent trades (the raw feeds) -->
+      <div id="sm-trades-view" class="subview">
+        <div class="sm-three-col">
+          <div>
+            <div class="section-header"><span class="section-label">Politician trades</span></div>
+            <div id="sm-politicians"></div>
+          </div>
+          <div>
+            <div class="section-header"><span class="section-label">Insider trades (Form 4)</span></div>
+            <div id="sm-insiders"></div>
+          </div>
+          <div>
+            <div class="section-header"><span class="section-label">Institutional (13D/13G)</span></div>
+            <div id="sm-institutional"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Hedge fund 13F holdings -->
+      <div id="sm-funds-view" class="subview">
+        <div class="sm-intro" style="margin-bottom:14px">
+          What legendary funds <b>hold and recently bought/sold</b>, from quarterly SEC 13F filings —
+          Berkshire, Burry's Scion, Pershing Square, Bridgewater, Renaissance, Citadel and more.
+        </div>
+        <div id="sm-funds"></div>
+      </div>
+
+      <!-- Fund consensus: what the legends are collectively invested in -->
+      <div id="sm-consensus-view" class="subview">
+        <div class="sm-intro" style="margin-bottom:14px">
+          The bets the famous funds <b>agree on</b> — names that show up across multiple managers'
+          latest 13F filings. Ranked by how many funds hold each. Updates automatically each quarter.
+        </div>
+        <div id="sm-consensus-meta" class="section-meta" style="margin-bottom:10px"></div>
+        <div id="sm-consensus"></div>
+      </div>
+
+      <!-- Insider clusters: multiple insiders buying the same stock at once -->
+      <div id="sm-iclusters-view" class="subview">
+        <div class="sm-intro" style="margin-bottom:14px">
+          Stocks where <b>MULTIPLE insiders are buying at once</b> — clustered Form 4 buys,
+          a high-conviction non-consensus signal. From OpenInsider.
+        </div>
+        <div id="sm-iclusters-meta" class="section-meta" style="margin-bottom:10px"></div>
+        <div id="sm-iclusters"></div>
+      </div>
+    </section>
+
+    <!-- PORTFOLIO -->
+    <section id="view-portfolio" class="view">
+      <div class="conv-header">
+        <div>
+          <div class="conv-title" id="pf-name">Portfolio</div>
+          <div class="conv-sub" id="pf-meta">Import the LCO fund snapshot to see holdings cross-referenced against our signals.</div>
+        </div>
+        <button id="pf-sync" class="btn-primary">Sync from LogiqGPT</button>
+      </div>
+      <div id="portfolio-content"></div>
+    </section>
+
+    <!-- INVESTOR LENS -->
+    <section id="view-investor-lens" class="view">
+      <div class="sm-intro">
+        Judge any ticker through the frameworks of legendary investors —
+        <b>Buffett, Graham, Lynch, Burry, Wood, Munger</b> — each reading the same dossier
+        we've aggregated (signals, smart-money flow, consensus, volume, dilution) through their
+        own philosophy. A multi-lens sanity check on a thesis.
+      </div>
+      <div class="filter-bar">
+        <input id="lens-ticker" class="filter-input" placeholder="Ticker (e.g. NVDA)" style="width:160px" />
+        <button id="lens-go" class="btn-primary">Run panel</button>
+        <span id="lens-meta" class="filter-meta"></span>
+      </div>
+      <div id="lens-consensus"></div>
+      <div id="lens-fundamentals"></div>
+      <div id="lens-cards"></div>
+    </section>
+
+    <!-- MACRO & PULSE -->
+    <section id="view-macro" class="view">
+      <div class="macro-regime" id="macro-regime"></div>
+      <div class="section-header" style="margin-top:20px">
+        <span class="section-label">Macro indicators</span>
+        <span class="section-meta">FRED · Federal Reserve economic data</span>
+      </div>
+      <div id="macro-indicators" class="macro-grid"></div>
+      <div class="sm-three-col" style="margin-top:24px">
+        <div>
+          <div class="section-header">
+            <span class="section-label">⚡ Unusual volume</span>
+            <span class="section-meta">RVOL ≥ 1.5×</span>
+          </div>
+          <div id="macro-uvol"></div>
+        </div>
+        <div>
+          <div class="section-header">
+            <span class="section-label">Short pressure</span>
+            <span class="section-meta">FINRA daily short %</span>
+          </div>
+          <div id="macro-short"></div>
+        </div>
+        <div>
+          <div class="section-header">
+            <span class="section-label">Fails-to-deliver</span>
+            <span class="section-meta">SEC FTD · squeeze fuel</span>
+          </div>
+          <div id="macro-ftd"></div>
+        </div>
+      </div>
+      <div class="section-header" style="margin-top:24px">
+        <span class="section-label">Watchlist pulse</span>
+        <span class="section-meta">Wikipedia attention + GDELT news tone per ticker</span>
+      </div>
+      <div id="macro-pulse"></div>
+    </section>
+
+    <!-- FORECASTS -->
+    <section id="view-forecasts" class="view">
+      <div class="sm-intro">
+        Crowd-forecast probabilities from <b>Polymarket</b> + <b>Kalshi</b> (both free,
+        no auth). When both venues price the same event we cross-check them —
+        <b>tight agreement = a validated forecast</b>; a wide spread means the markets
+        disagree (an arbitrage or genuine-uncertainty signal).
+      </div>
+      <div id="fc-crossval-wrap" style="display:none">
+        <div class="section-header">
+          <span class="section-label">🔀 Cross-market validation</span>
+          <span class="section-meta">Same event, both venues</span>
+        </div>
+        <div id="fc-crossval"></div>
+      </div>
+      <div class="filter-bar" style="margin-top:18px">
+        <button class="fc-btn active" data-fc="">All</button>
+        <button class="fc-btn" data-fc="Polymarket">Polymarket</button>
+        <button class="fc-btn" data-fc="Kalshi">Kalshi</button>
+      </div>
+      <div id="fc-predictions"></div>
+    </section>
+
+    <!-- FEED -->
+    <section id="view-feed" class="view">
+      <div class="filter-bar">
+        <button class="filter-btn active" data-feed="feed">All</button>
+        <button class="filter-btn" data-feed="youtube">YouTube</button>
+        <button class="filter-btn" data-feed="twitter">Twitter/X</button>
+        <button class="filter-btn" data-feed="blogs">Blogs</button>
+      </div>
+      <div id="feed-items"></div>
+    </section>
+
+    <!-- SIGNALS -->
+    <section id="view-signals" class="view">
+      <div class="filter-bar">
+        <button class="dir-btn active" data-dir="">All</button>
+        <button class="dir-btn bullish" data-dir="bullish">Bullish</button>
+        <button class="dir-btn bearish" data-dir="bearish">Bearish</button>
+        <button class="dir-btn neutral" data-dir="neutral">Neutral</button>
+        <div class="filter-sep"></div>
+        <select id="sig-sort" class="filter-select">
+          <option value="newest">Newest</option>
+          <option value="confidence">Highest confidence</option>
+          <option value="alpha">Alpha score</option>
+          <option value="contrarian">Most contrarian</option>
+        </select>
+        <select id="sig-type" class="filter-select">
+          <option value="">All types</option>
+          <option value="commercial_deployment">Commercial deployment</option>
+          <option value="pilot">Pilot / prototype</option>
+          <option value="funding">Funding</option>
+          <option value="bottleneck">Bottleneck</option>
+          <option value="displacement">Displacement</option>
+        </select>
+        <input id="sig-ticker" class="filter-input" placeholder="Filter by ticker…" />
+      </div>
+      <div id="signal-list"></div>
+    </section>
+
+    <!-- WATCHLISTS -->
+    <section id="view-watchlists" class="view">
+      <div id="watchlist-content"></div>
+    </section>
+
+    <!-- THEME SHIFTS -->
+    <section id="view-theme-shifts" class="view">
+      <div class="filter-bar">
+        <button class="period-btn active" data-period="week">1W</button>
+        <button class="period-btn" data-period="month">1M</button>
+        <button class="period-btn" data-period="3month">3M</button>
+        <button class="period-btn" data-period="6month">6M</button>
+        <button class="period-btn" data-period="year">1Y</button>
+        <span id="shift-meta" class="filter-meta"></span>
+      </div>
+      <div class="shift-grid">
+        <div class="shift-col">
+          <div class="shift-col-head rising">Rising themes</div>
+          <div id="shift-rising"></div>
+        </div>
+        <div class="shift-col">
+          <div class="shift-col-head falling">Falling themes</div>
+          <div id="shift-falling"></div>
+        </div>
+      </div>
+      <div class="section-header" style="margin-top:24px">
+        <span class="section-label">Ticker polarity flips</span>
+      </div>
+      <div id="shift-alerts"></div>
+      <div class="chart-wrap" style="margin-top:20px">
+        <canvas id="chart-theme-timeline"></canvas>
+      </div>
+      <div class="chart-wrap">
+        <canvas id="chart-theme-bar"></canvas>
+      </div>
+    </section>
+
+    <!-- TRENDS -->
     <section id="view-trends" class="view">
-      <div class="chart-wrap"><canvas id="chart-directions"></canvas></div>
+      <div class="section-header">
+        <span class="section-label">Composite indices</span>
+        <span class="section-meta">Weighted scores · −100 risk-off/bearish … +100 risk-on/bullish</span>
+      </div>
+      <div id="composite-gauges" class="gauge-grid"></div>
+      <div class="section-header" style="margin-top:20px">
+        <span class="section-label">Watchlist heatmap</span>
+        <span class="section-meta">net signal score per ticker · green bullish / red bearish · click to open</span>
+      </div>
+      <div id="heatmap"></div>
+      <div class="trend-chart-grid">
+        <div class="chart-wrap"><canvas id="chart-volume"></canvas></div>
+        <div class="chart-wrap"><canvas id="chart-direction"></canvas></div>
+        <div class="chart-wrap"><canvas id="chart-tickers"></canvas></div>
+        <div class="chart-wrap"><canvas id="chart-types"></canvas></div>
+      </div>
       <div class="chart-wrap"><canvas id="chart-topics"></canvas></div>
     </section>
-    <section id="view-industries" class="view"></section>
-    <section id="view-sources" class="view"></section>
-  </main>
+
+    <!-- INDUSTRIES -->
+    <section id="view-industries" class="view">
+      <div id="industries-grid" class="ind-grid"></div>
+    </section>
+
+    <!-- SOURCES -->
+    <section id="view-sources" class="view">
+      <div class="filter-bar">
+        <input id="src-name" class="filter-input" placeholder="Name" />
+        <select id="src-type" class="filter-select">
+          <option value="">Type</option>
+          ${["rss","bluesky","twitter","youtube","forum","sec","form4","patent","reddit","hackernews","arxiv"].map(t=>`<option>${t}</option>`).join("")}
+        </select>
+        <input id="src-url" class="filter-input" placeholder="URL" />
+        <input id="src-tags" class="filter-input" placeholder="Tags" />
+        <button id="src-add" class="btn-primary">Add source</button>
+      </div>
+      <div id="source-table"></div>
+    </section>
+
+    </main>
+  </div>
+
+  <div id="dossier" class="dossier-overlay" hidden>
+    <div class="dossier-box">
+      <div class="dossier-head">
+        <div id="dossier-title"></div>
+        <button id="dossier-close" class="btn-sm">✕ Esc</button>
+      </div>
+      <div id="dossier-body"></div>
+    </div>
+  </div>
+
+  <div id="cmdk" class="cmdk-overlay" hidden>
+    <div class="cmdk-box">
+      <input id="cmdk-input" class="cmdk-input" placeholder="Jump to a tab or ticker…  (Esc to close)" autocomplete="off" />
+      <div id="cmdk-results" class="cmdk-results"></div>
+    </div>
+  </div>
 
   <div id="toast"></div>
   <script src="/charts.js"></script>

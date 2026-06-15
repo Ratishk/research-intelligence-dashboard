@@ -9,10 +9,11 @@ API: https://efts.sec.gov/LATEST/search-index?q=...
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 
 import requests
 
+from app.ingestion import sec_throttle
 from app.ingestion.common import upsert_item
 from app.models import Source, SourceType
 
@@ -29,6 +30,7 @@ def ingest_source(session, source: Source) -> int:
     query = source.handle or source.tags or source.name
     forms = "8-K"
     try:
+        sec_throttle.acquire()
         resp = requests.get(
             _ENDPOINT,
             headers=_HEADERS,
@@ -51,7 +53,7 @@ def ingest_source(session, source: Source) -> int:
         published = None
         if src.get("file_date"):
             try:
-                published = datetime.fromisoformat(src["file_date"])
+                published = datetime.fromisoformat(src["file_date"]).replace(tzinfo=timezone.utc)
             except ValueError:
                 published = None
         title = f"{src.get('display_names', [query])[0]} — {src.get('file_type', forms)}"
